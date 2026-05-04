@@ -5,5 +5,8 @@
   "scripts": {
     "ci:local": "node scripts/ci-local.mjs",
     "smoke": "node scripts/smoke-agora.mjs"
+  },
+  "dependencies": {
+    "isomorphic-dompurify": "^3.12.0"
   }
 }
