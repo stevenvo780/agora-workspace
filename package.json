@@ -1,0 +1,21 @@
+{
+  "name": "agora-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "ci:local": "node scripts/ci-local.mjs",
+    "smoke": "node scripts/smoke-agora.mjs"
+  },
+  "workspaces": [
+    "AgoraFront",
+    "AgoraBack",
+    "AgoraHub",
+    "AgoraWorker/worker",
+    "AgoraWorker/worker/agora-cli",
+    "AgoraCli",
+    "Autologic",
+    "ST",
+    "ST/editors/vscode-st",
+    "packages/*"
+  ]
+}

@@ -1,0 +1,25 @@
+# Subrepos del ecosistema — cada uno tiene su propio .git/. Aquí solo
+# viven en disco para desarrollo local; no van al repo de coordinación.
+AgoraFront/
+AgoraBack/
+AgoraHub/
+AgoraWorker/
+AgoraCli/
+ST/
+Autologic/
+packages/agora-contracts/
+
+# Build artifacts y deps locales
+node_modules/
+*.log
+.DS_Store
+.playwright-mcp/
+
+# IDE
+.vscode/
+.idea/
+
+# Locales/temporales
+*.tmp
+.env
+.env.local

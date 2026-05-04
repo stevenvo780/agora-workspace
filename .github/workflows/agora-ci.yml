@@ -1,0 +1,40 @@
+name: Agora CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+jobs:
+  contracts-and-services:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm --prefix packages/agora-contracts run build
+      - run: npm --prefix packages/agora-contracts run typecheck
+      - run: npm --prefix AgoraFront run typecheck
+      - run: npm --prefix AgoraFront run test:unit -- --reporter=default
+      - run: npm --prefix AgoraBack run typecheck
+      - run: npm --prefix AgoraBack test
+      - run: npm --prefix AgoraHub run typecheck
+      - run: npm --prefix AgoraHub test
+      - run: npm --prefix AgoraWorker/worker run check
+      - run: npm --prefix AgoraWorker/worker test
+      - run: npm --prefix AgoraCli run check
+      - run: npm --prefix AgoraCli test
+      - run: npm --prefix ST run typecheck
+      - run: npm --prefix ST test -- --reporter=default
+      - run: npm --prefix Autologic run typecheck
+      - run: npm --prefix Autologic test -- --reporter=default
+      - name: npm audit high threshold
+        run: |
+          npm --prefix AgoraFront audit --omit=dev --audit-level=high
+          npm --prefix AgoraBack audit --omit=dev --audit-level=high
+          npm --prefix AgoraHub audit --omit=dev --audit-level=high
+          npm --prefix AgoraWorker/worker audit --omit=dev --audit-level=high
+          npm --prefix Autologic audit --omit=dev --audit-level=high
