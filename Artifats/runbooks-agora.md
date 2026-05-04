@@ -23,6 +23,41 @@
 4. Si el contenedor está `exited`, dejar que host-sync lo reviva o iniciar con `edu-worker-manager`.
 5. Comandos agente pendientes deben reintentarse; no se persisten.
 
+## Worker en restart loop con imagen vieja (zombie)
+
+Síntoma: la UI muestra `<workspace> worker offline`, pero el container existe en
+`docker ps -a` con estado `Restarting (137) N days ago`. `edu-worker-manager update all`
+no lo recicla porque solo toca containers en estado `running`. `agora-host-sync`
+solo hace `docker start` sobre `exited`, no recrea desde cero.
+
+```bash
+# 1. Confirmar el container y el imagen vieja:
+ssh stev@100.98.8.227 "docker inspect edu-worker-<wsId> --format 'Image:{{.Image}} Status:{{.State.Status}} ExitCode:{{.State.ExitCode}}'"
+
+# 2. Intentar remove normal:
+ssh stev@100.98.8.227 "docker rm -f edu-worker-<wsId>"
+
+# 3. Si docker daemon devuelve 'tried to kill container, but did not receive an exit event'
+#    (bug HTTP/2 de Docker 28.2.2), buscar el proceso node/app/index.js huérfano:
+ssh stev@100.98.8.227 "ps auxf | grep -E 'node /app/index.js' | grep -v grep"
+
+# 4. Kill -9 al PID que tenga fecha START vieja (días/semanas atrás, sin parent):
+ssh stev@100.98.8.227 "echo <PASSWORD> | sudo -S kill -9 <PID>"
+
+# 5. Reintentar el remove:
+ssh stev@100.98.8.227 "docker rm -f edu-worker-<wsId>"
+
+# 6. Recrear container con la imagen latest actual:
+ssh stev@100.98.8.227 "echo <PASSWORD> | sudo -S edu-worker-manager add <wsId>"
+
+# 7. Verificar revival y autenticación al hub:
+ssh stev@100.98.8.227 "docker ps --filter name=edu-worker-<wsId> && journalctl --user -u edu-hub --since '30 seconds ago' --no-pager | grep <wsId>"
+```
+
+Causa típica: container creado hace mucho con imagen vieja que crashea al iniciar
+antes de pasar el primer heartbeat. `update all` no lo toca porque no está running,
+y termina como container huérfano sin forma autonómica de recuperación.
+
 ## RTDB sin eventos
 
 1. Validar `FIREBASE_DATABASE_URL` en Back.
