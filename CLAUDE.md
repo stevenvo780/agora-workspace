@@ -283,7 +283,85 @@ Si reaparecen, comunicar al user:
 - ~~Mono-repo gigante~~ → split a 7 repos con historial preservado
   (`git filter-repo`).
 
-## 11. Archivos que casi nunca tocar
+## 11. Harness de Claude Code en este workspace
+
+Configuración instalada para evitar declaraciones falsas de éxito ("lo
+logré", "funciona", "listo") sin verificación real, y para tener un
+equipo de subagents especializados en los puntos de dolor del proyecto.
+
+### 11.1 Stop hook anti-victoria-falsa
+
+- `~/.claude/hooks/verify-completion.sh` — Stop hook que parsea el
+  transcript, detecta frases de victoria y exige ≥1 tool call de
+  verificación (Bash/Read/Grep/Glob/WebFetch/Agent/etc.) tras el último
+  prompt humano. Si no hay verificación, retorna
+  `{"decision":"block","reason":"..."}` y el modelo es forzado a continuar.
+- `EducacionCooperativa/.claude/settings.json` — registra el hook +
+  permisos seguros (deny destructivos, ask para deploys, allow para
+  diagnóstico). Env: `CLAUDE_MIN_VERIFICATIONS=1`.
+- `EducacionCooperativa/AgoraFront/.claude/settings.json` — mismo hook +
+  `additionalDirectories` para los 6 subrepos hermanos.
+
+### 11.2 Subagents especializados
+
+Definidos en `.claude/agents/`. Llamados via Agent tool (`subagent_type`).
+Sweet spot mantenido en 4 agentes (anti-pattern: >10-15 diluye routing).
+
+| Agent | Color | Cuándo invocarlo |
+|-------|-------|------------------|
+| `code-reviewer` | 🟢 | Pre-commit/PR sobre diff. Audita convenciones (TS strict, sin `any`, contratos de borde, payloads RTDB completos, lint rules). Read-only. |
+| `security-auditor` | 🔴 | Pre-commit y pre-deploy. Detecta secrets/env leaks, canal sync sin uid, `WORKER_SECRET` sin `.trim()`, env vars protegidas fuera de `src/lib/env.ts`. Read-only. |
+| `deploy-verifier` | 🔵 | INMEDIATAMENTE post-deploy. Valida Vercel/Cloud Run/Hub/Workers con curl + gcloud + ssh. Devuelve verdict con evidencia. |
+| `sync-debugger` | 🟡 | Cuando el user reporta "no sincroniza" / "ya no funciona como antes". Especialista en regresiones RTDB/daemon/MinIO históricas. |
+
+### 11.3 Slash commands (orquestación)
+
+Definidos en `.claude/commands/`. Invocados con `/<nombre>`.
+
+| Command | Qué hace |
+|---------|----------|
+| `/diag [capa]` | Health check de front/back/hub/workers/nas con tabla de status. |
+| `/audit-changes [ref]` | Lanza `code-reviewer` + `security-auditor` en paralelo sobre el diff. Verdict consolidado. |
+| `/verify-deploy [target]` | Lanza `deploy-verifier` sobre el target del último deploy. |
+| `/sync-status [síntoma]` | Quick health pass + `sync-debugger` si hay anomalía. |
+
+### 11.4 Cuándo NO usar agents
+
+- Tareas cortas/secuenciales (<10 archivos, <3 pasos): hacela en main, el
+  overhead de fork no compensa.
+- Review del propio trabajo en el mismo turno: el fork "rubber-stampea".
+  Para code review serio esperá un turno fresco o usá `/audit-changes`.
+- Steps con dependencias serias entre ellos: no son paralelizables.
+
+### 11.5 Operación del harness
+
+**Desactivar el hook temporalmente** (si molesta para exploración):
+```bash
+export CLAUDE_MIN_VERIFICATIONS=0   # threshold a 0 = nunca bloquea
+```
+o editar `settings.json` y poner `disableAllHooks: true`.
+
+**Extender el harness a otros subrepos** — los agents/commands de
+`EducacionCooperativa/.claude/` SÓLO se cargan cuando Claude abre con
+cwd en el workspace root. Si abrís Claude en un subrepo, el harness no
+los ve. Para portarlo, copiar `.claude/agents/`, `.claude/commands/` y
+el bloque `hooks` de `settings.json` a `<subrepo>/.claude/`.
+
+**Patrones que el hook detecta** (case-insensitive): "lo logré",
+"funciona perfectamente/bien/correctamente", "todo bien/listo",
+"ya está listo", "completado exitosamente", "sin problemas",
+"funcionando perfectamente", "exitoso/exitosa", "ya quedó", "solucionado",
+"arreglado completamente", "works perfectly", "all good/set",
+"everything works", "works as expected", "successfully completed".
+
+**Falsos positivos esperados**: ~5%. Remedio: ejecutar 1 tool de
+verificación (cualquier `Read` o `Bash`) o reformular sin la frase.
+
+**Importante**: hooks/agents/commands recién creados NO los detecta el
+watcher hasta reiniciar Claude Code o abrir `/hooks` una vez (el watcher
+sólo vigila directorios que tenían settings al iniciar la sesión).
+
+## 12. Archivos que casi nunca tocar
 
 - `AgoraFront/src/generated/*` — regenerados por scripts. Si aparecen
   modificados sin haberlos pedido: `git checkout -- src/generated/`.
@@ -292,7 +370,7 @@ Si reaparecen, comunicar al user:
 - `AgoraWorker/worker/build/` — artefactos de empaquetado.
 - `ST/dist/`, `Autologic/dist/` — outputs npm publish, regenerables.
 
-## 12. Notas sobre los repos hermanos
+## 13. Notas sobre los repos hermanos
 
 ### ST y Autologic
 Son librerías npm publicadas (`@stevenvo780/st-lang`, `@stevenvo780/autologic`).
