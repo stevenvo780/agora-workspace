@@ -23,7 +23,7 @@ terminal + git en un solo lugar.
 EducacionCooperativa/                    ← este wrapper local (NO repo git)
 ├── AgoraFront/   stevenvo780/EducacionCooperativa  ← Next.js / Vercel
 ├── AgoraBack/    stevenvo780/agora-backend         ← Express / Cloud Run
-├── AgoraHub/     stevenvo780/agora-hub             ← socket.io / stev-server
+├── AgoraHub/     stevenvo780/agora-hub             ← socket.io / humanizar2
 ├── AgoraWorker/  stevenvo780/agora-worker          ← Docker / DockerHub
 ├── AgoraCli/     stevenvo780/agora-cli             ← CLI local (sin publicar)
 ├── ST/           stevenvo780/ST                    ← npm @stevenvo780/st-lang
@@ -50,7 +50,7 @@ agora.elenxos.com (Vercel — AgoraFront)
                                           ├─ tools del agente ejecutadas en Back
                                           └─ Firestore + MinIO + Forgejo + Hub/workers
 
-stev-server  (NetBird 100.98.8.227)
+humanizar2  (NetBird 100.98.5.11, user `humanizar`)
   ├─ AgoraHub (edu-hub.service user) — socket.io 3010
   ├─ agora-host-sync.service — daemon que sincroniza workers ↔ NAS
   └─ ~27 containers edu-worker-<wsId> (imagen stevenvo780/edu-worker:latest)
@@ -80,44 +80,46 @@ NAS  (NetBird 100.98.67.189)
 
 ## 4. Despliegues
 
-### AgoraFront (Vercel) — DEPLOY MANUAL ÚNICAMENTE
+### AgoraFront (Vercel)
 
-> **Importante**: el auto-deploy via `git push` está roto desde 2026-05-04
-> porque AgoraFront consume `@agora/contracts`, `@stevenvo780/st-lang` y
-> `@stevenvo780/autologic` con `file:../...` y Vercel hace build aislado
-> sin acceso a esos paths hermanos. Cada `git push` a master genera un
-> deploy "Error" que NO afecta el alias actual pero ensucia el historial.
+Desde el split a 7 repos (commit `858d0ec`), AgoraFront consume
+`@agora/contracts`, `@stevenvo780/st-lang` y `@stevenvo780/autologic`
+desde el registro npm — ya **no** hay deps `file:../*` y por tanto el
+script histórico `scripts/prepare-deploy.mjs` fue eliminado. El deploy
+es un único comando:
 
-Flujo manual obligatorio:
 ```bash
 cd AgoraFront
-node scripts/prepare-deploy.mjs              # empaqueta deps file:../* a tarballs
-npm install --no-audit --no-fund             # resuelve tarballs locales
-vercel pull --yes --environment=production   # solo si .vercel/ no está pulled
-vercel build --prod --yes                    # build local en .vercel/output/
-vercel deploy --prebuilt --prod --yes        # despliega lo prebuilt
-# captura el deployment-url devuelto y aliasea:
-vercel alias set <visormarkdown-XXX>-stevenvo780s-projects.vercel.app agora.elenxos.com
-node scripts/prepare-deploy.mjs restore      # restaura package.json + lockfile
+npm run typecheck && npm run build           # sanity local antes de subir
+vercel deploy --prod --yes                   # build + deploy en Vercel
+# si el proyecto NO tiene production aliasing automático, aliasea manualmente:
+vercel alias set <visormarkdown-XXX>.vercel.app agora.elenxos.com
 ```
+
+`vercel deploy --prod` devuelve `Production: https://visormarkdown-…vercel.app`
+y `Aliased: https://agora.elenxos.com` cuando el alias automático está
+configurado.
 
 Tras tocar env vars Vercel:
 ```bash
 printf 'valor-sin-newline' | vercel env add NOMBRE production
-# requiere redeploy manual (no auto) para que las funciones la lean
+# requiere redeploy (no se aplica en caliente) para que las funciones la lean.
 ```
 
-Limpiar deploys Error en historial:
+Limpiar deploys Error del historial:
 ```bash
 vercel remove <deployment-url> --safe --yes
 ```
 
 ### AgoraBack (Cloud Run, proyecto GCP `udea-filosofia`)
+
+Mismo principio: `@agora/contracts`, ST y Autologic vienen de npm, sin
+empaquetado previo. Deploy directo:
+
 ```bash
 cd AgoraBack
-node scripts/prepare-deploy.mjs              # empaqueta @agora/contracts + ST + Autologic
+npm run typecheck
 gcloud run deploy agora-backend --source . --region us-central1
-node scripts/prepare-deploy.mjs restore      # restaura package.json + lockfile
 # blue/green automático; revision nueva recibe tráfico al pasar health check
 ```
 
@@ -129,7 +131,7 @@ Secrets cableados (no tocar a menos que sea necesario):
 - IAM bindings: `secretmanager.secretAccessor`, `datastore.user`,
   `firebase.sdkAdminServiceAgent` para la SA `<projectNumber>-compute@`.
 
-### AgoraHub (stev-server)
+### AgoraHub (humanizar2)
 ```bash
 cd AgoraHub
 npm run build
@@ -138,17 +140,17 @@ cd ../AgoraWorker/desplieges-prod
 ./deploy_hub.sh
 ```
 
-Internamente: `scp dist/index.js` al stev-server, mover a
-`/home/stev/edu-hub/dist/`, `systemctl --user restart edu-hub`. Health
-local: `curl http://127.0.0.1:3010/health`.
+Internamente: `scp dist/index.js` al host activo (`humanizar2`), mover a
+`/home/humanizar/edu-hub/dist/`, `systemctl --user restart edu-hub`.
+Health local: `curl http://127.0.0.1:3010/health`.
 
-### AgoraWorker (DockerHub + stev-server)
+### AgoraWorker (DockerHub + humanizar2)
 ```bash
 cd AgoraWorker/worker
 docker build -t stevenvo780/edu-worker:latest .
 docker push stevenvo780/edu-worker:latest
-# en stev-server:
-ssh nas 'ssh stev@stev-server "echo PASS | sudo -S edu-worker-manager update all"'
+# en humanizar2 (via NAS como jump host):
+ssh nas 'ssh humanizar2 "echo PASS | sudo -S edu-worker-manager update all"'
 ```
 
 `edu-worker-manager update all` recrea los ~27 containers con la imagen
@@ -161,24 +163,25 @@ Acceso a hosts y servicios: **`AgoraFront/.claude/secrets.md`** (gitignored).
 Hosts:
 - **NAS** — `nas@100.98.67.189` (NetBird). Hostea MinIO, Forgejo, Postgres,
   filebrowser. `docker exec agora-{minio,forgejo,...}` para acción directa.
-- **stev-server** — `stev@100.98.8.227` (NetBird) o LAN fallback. Hostea
-  workers Docker, daemon `agora-host-sync` y el `edu-hub`. Acceso por
-  jump host (NAS): `ssh nas ssh stev-server '...'`.
+- **humanizar2** — `humanizar@100.98.5.11` (NetBird, alias SSH
+  `humanizar2`). Hostea workers Docker, daemon `agora-host-sync` y el
+  `edu-hub`. Acceso por jump host (NAS): `ssh nas ssh humanizar2 '...'`.
+  Reemplazó a `stev-server` (`stev@100.98.8.227`) como host activo.
 - **GCP** — proyecto `udea-filosofia` (mismo que Firebase). `gcloud auth
   login` ya está; `gcloud config set project udea-filosofia` por defecto.
 
 Comandos diagnóstico frecuentes:
 ```bash
 # Estado del daemon de sync
-ssh nas ssh stev-server 'systemctl status agora-host-sync'
-ssh nas ssh stev-server 'tail -50 /home/stev/logs/agora-host-sync.log'
+ssh nas ssh humanizar2 'systemctl status agora-host-sync'
+ssh nas ssh humanizar2 'tail -50 /home/humanizar/logs/agora-host-sync.log'
 
 # Estado del hub
-ssh nas ssh stev-server 'systemctl --user status edu-hub'
-ssh nas ssh stev-server 'curl -s http://127.0.0.1:3010/health'
+ssh nas ssh humanizar2 'systemctl --user status edu-hub'
+ssh nas ssh humanizar2 'curl -s http://127.0.0.1:3010/health'
 
 # Workers
-ssh nas ssh stev-server 'docker ps --filter name=edu-worker --format "table {{.Names}}\t{{.Status}}"'
+ssh nas ssh humanizar2 'docker ps --filter name=edu-worker --format "table {{.Names}}\t{{.Status}}"'
 
 # Bucket MinIO (creds en secrets.md):
 ssh nas 'docker exec agora-minio mc ls --recursive adm/agora-blobs/ | head'
@@ -192,7 +195,7 @@ gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.serv
 
 ## 6. Workers — comportamiento conocido
 
-- Docker 28.2.2 en stev-server crashea ocasionalmente con un bug HTTP/2
+- Docker 28.2.2 en humanizar2 crashea ocasionalmente con un bug HTTP/2
   (`golang.org/x/net/http2.(*Framer).ReadFrame`). Cuando crashea, todos los
   workers reciben SIGTERM→SIGKILL. `agora-host-sync` los revive en el
   siguiente ciclo (cada 5s).
@@ -201,7 +204,7 @@ gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.serv
   comando fuera de la whitelist, responde `binary "x" no está en la whitelist`.
 - Para añadir un worker manualmente sin sudo: replica `docker run` con
   `--network=host`, `--user=estudiante`, mounts en
-  `/home/stev/edu-worker/...`, env igual a otro worker pero con
+  `/home/humanizar/edu-worker/...`, env igual a otro worker pero con
   `WORKER_TOKEN=<wsId>`.
 - Existe `edu-worker-manager add <wsId>` que requiere sudo.
 
@@ -261,7 +264,7 @@ Si reaparecen, comunicar al user:
 - **Retirar las rutas bare deprecated** de AgoraBack cuando pase el sunset
   (`BARE_API_ROUTES_SUNSET`, default 2026-08-01). Hasta entonces deben
   responder con `Deprecation`, `Sunset` y `Link rel="canonical"`.
-- **Docker daemon** crashes recurrentes en stev-server — recomendar
+- **Docker daemon** crashes recurrentes en humanizar2 — recomendar
   `apt upgrade docker-ce` cuando haya ventana de mantenimiento.
 - **MinIO basura histórica** (~32 objetos en raíz) — no afecta nada
   pero ensucia.
