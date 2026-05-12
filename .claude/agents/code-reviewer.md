@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
 description: Revisa código recién escrito o modificado contra las convenciones de CLAUDE.md del workspace Agora. Úsalo proactivamente antes de commit/PR, especialmente sobre el diff sin commitear. Verifica TypeScript strict, ausencia de `any`, comentarios prohibidos, contratos de borde sin `as Tipo`, payloads RTDB con timestamp/type/source, canal personal_<uid>, lint rules de @agora/contracts, sin secretos hardcoded. Devuelve issues clasificados por severidad con file:line citables.
-model: opus
+model: sonnet
 color: green
 ---
 

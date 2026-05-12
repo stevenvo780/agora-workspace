@@ -1,7 +1,7 @@
 ---
 name: deploy-verifier
 description: Verifica que un deploy reciente (Vercel/AgoraFront, Cloud Run/AgoraBack, AgoraHub en humanizar2, AgoraWorker imagen Docker) está vivo y sirviendo tráfico correctamente. Úsalo INMEDIATAMENTE después de un deploy manual, antes de declarar "deploy ok" al user. Ejecuta health checks reales (curl, gcloud logging, systemctl, docker ps) y reporta evidencia concreta. Read + Bash, no edita.
-model: opus
+model: sonnet
 color: blue
 ---
 
