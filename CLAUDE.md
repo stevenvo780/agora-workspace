@@ -46,20 +46,26 @@ agora.elenxos.com (Vercel — AgoraFront)
                                               ▼
                                         Cloud Run (AgoraBack)
                                           ├─ /api/* Express + route handlers estilo Next
-                                          ├─ /api/agora-ai/stream
+                                          ├─ /api/agora-ai/stream (rate-limit + chats persistidos)
                                           ├─ tools del agente ejecutadas en Back
                                           └─ Firestore + MinIO + Forgejo + Hub/workers
 
+agora-hub  (GCP Compute Engine e2-micro free tier, us-central1)
+  IP 34.72.204.171  ·  dominio hub.humanizar-dev.cloud  ·  Caddy h1 only
+  ├─ AgoraHub (systemd edu-hub.service, user no-root edu-hub) — socket.io 3010
+  └─ ProtectSystem + apt-cron weekly + firewall raw 3010 cerrado (solo 443)
+
 humanizar2  (NetBird 100.98.5.11, user `humanizar`)
-  ├─ AgoraHub (edu-hub.service user) — socket.io 3010
   ├─ agora-host-sync.service — daemon que sincroniza workers ↔ NAS
-  └─ ~27 containers edu-worker-<wsId> (imagen stevenvo780/edu-worker:latest)
+  └─ ~35 containers edu-worker-<wsId> (imagen stevenvo780/edu-worker:latest)
+       NEXUS_URL=https://hub.humanizar-dev.cloud
 
 NAS  (NetBird 100.98.67.189)
   ├─ MinIO (S3-compatible)        bucket agora-blobs
   ├─ Forgejo (Git)                 org "agora", 1 repo por workspace
   ├─ Postgres 17                   (preflight para migraciones futuras)
   └─ Firebase Auth + Firestore + RTDB (proyecto udea-filosofia, no en el NAS)
+       Service Account Firebase rotada (Secret Manager v3 activa, v1/v2 disabled)
 ```
 
 ### Reglas críticas de la arquitectura (no romper)
@@ -77,6 +83,16 @@ NAS  (NetBird 100.98.67.189)
   el stream principal ejecuta tools directamente dentro de AgoraBack.
 - El daemon de sync trackea `{ localHash, remoteHash }` por path. **NO**
   simplificar a un solo hash — eso causó un loop de re-pull histórico.
+- `NEXUS_URL` debe estar seteado en AgoraBack (Cloud Run) para que las
+  tools del agente que llaman al worker (`run_command`, `read_file`,
+  `write_file`, etc.) sepan a dónde apuntar. Default real:
+  `https://hub.humanizar-dev.cloud`.
+- Daemon `agora-host-sync` ignora `.scratch/`, `.agent-tmp/`, `tmp-*`,
+  `*.tmp` (Bug I-2 Opción B). Si añadís hard-coded patterns, NO te
+  pases — el `.syncignore` editable del workspace debe seguir mandando.
+- Vault de API keys del agente IA (`users/{uid}/agentSecrets/{provider}`)
+  cifra con AES-256-GCM/HKDF derivado de `WORKER_SECRET`. Rotar el secret
+  invalida todas las keys guardadas — coordinarlo con el user.
 
 ## 4. Despliegues
 
@@ -131,7 +147,7 @@ Secrets cableados (no tocar a menos que sea necesario):
 - IAM bindings: `secretmanager.secretAccessor`, `datastore.user`,
   `firebase.sdkAdminServiceAgent` para la SA `<projectNumber>-compute@`.
 
-### AgoraHub (humanizar2)
+### AgoraHub (GCP VM `agora-hub`)
 ```bash
 cd AgoraHub
 npm run build
@@ -140,9 +156,18 @@ cd ../AgoraWorker/desplieges-prod
 ./deploy_hub.sh
 ```
 
-Internamente: `scp dist/index.js` al host activo (`humanizar2`), mover a
-`/home/humanizar/edu-hub/dist/`, `systemctl --user restart edu-hub`.
-Health local: `curl http://127.0.0.1:3010/health`.
+Internamente: `scp dist/index.js` a la VM `agora-hub` (IP `34.72.204.171`),
+mover a `/opt/edu-hub/dist/`, `systemctl restart edu-hub` (user `edu-hub`
+no-root via systemd ProtectSystem).
+
+Health: `curl https://hub.humanizar-dev.cloud/health` (Caddy frente al
+3010, `protocols h1` only por engine.io). El firewall raw 3010 está
+cerrado; solo 443 acepta tráfico externo.
+
+> Migración 2026-05: el hub vivía como `systemd --user` en `humanizar2`.
+> Hoy corre en VM dedicada GCP e2-micro free tier (~$0/mes). Los workers
+> siguen en `humanizar2`. Tras un deploy del hub, los workers reconectan
+> automáticamente porque `NEXUS_URL=https://hub.humanizar-dev.cloud`.
 
 ### AgoraWorker (DockerHub + humanizar2)
 ```bash
@@ -164,11 +189,17 @@ Hosts:
 - **NAS** — `nas@100.98.67.189` (NetBird). Hostea MinIO, Forgejo, Postgres,
   filebrowser. `docker exec agora-{minio,forgejo,...}` para acción directa.
 - **humanizar2** — `humanizar@100.98.5.11` (NetBird, alias SSH
-  `humanizar2`). Hostea workers Docker, daemon `agora-host-sync` y el
-  `edu-hub`. Acceso por jump host (NAS): `ssh nas ssh humanizar2 '...'`.
-  Reemplazó a `stev-server` (`stev@100.98.8.227`) como host activo.
+  `humanizar2`). Hostea workers Docker y daemon `agora-host-sync`. Acceso
+  por jump host (NAS): `ssh nas ssh humanizar2 '...'`. Reemplazó a
+  `stev-server` (`stev@100.98.8.227`) como host de workers.
+- **agora-hub** — VM GCP Compute Engine e2-micro free tier en us-central1,
+  IP `34.72.204.171`, dominio `hub.humanizar-dev.cloud`. Hostea AgoraHub
+  como systemd unit (no `--user`) con usuario no-root `edu-hub`. Acceso
+  SSH vía `gcloud compute ssh agora-hub --zone=us-central1-a`.
 - **GCP** — proyecto `udea-filosofia` (mismo que Firebase). `gcloud auth
   login` ya está; `gcloud config set project udea-filosofia` por defecto.
+  Cloud Ops Agent v2.66 instalado en `agora-hub` con 2 dashboards Cloud
+  Monitoring + 4 alerting policies (email a `stevenvallejo780@gmail.com`).
 
 Comandos diagnóstico frecuentes:
 ```bash
@@ -176,11 +207,11 @@ Comandos diagnóstico frecuentes:
 ssh nas ssh humanizar2 'systemctl status agora-host-sync'
 ssh nas ssh humanizar2 'tail -50 /home/humanizar/logs/agora-host-sync.log'
 
-# Estado del hub
-ssh nas ssh humanizar2 'systemctl --user status edu-hub'
-ssh nas ssh humanizar2 'curl -s http://127.0.0.1:3010/health'
+# Estado del hub (GCP VM)
+gcloud compute ssh agora-hub --zone=us-central1-a --command='systemctl status edu-hub'
+curl -s https://hub.humanizar-dev.cloud/health
 
-# Workers
+# Workers (35 vivos en humanizar2)
 ssh nas ssh humanizar2 'docker ps --filter name=edu-worker --format "table {{.Names}}\t{{.Status}}"'
 
 # Bucket MinIO (creds en secrets.md):
@@ -285,6 +316,32 @@ Si reaparecen, comunicar al user:
   budget 760s + truncated:true gracioso.
 - ~~Mono-repo gigante~~ → split a 7 repos con historial preservado
   (`git filter-repo`).
+- ~~Hub en stev-server con `systemd --user`~~ → migrado a VM dedicada
+  GCP `agora-hub` (e2-micro free tier) con user no-root + Caddy h1 +
+  hardening (ProtectSystem, apt-cron, firewall raw 3010 cerrado).
+- ~~Service Account Firebase sin rotación~~ → rotada (Secret Manager v3
+  enabled, v1/v2 disabled). Backfill custom claims ejecutado.
+- ~~Agente IA sin rate limit~~ → daily token budget 500k + hourly cap
+  100 msgs + abuse-block 5×429 en 10min. Tracking en
+  `users/{uid}/agentUsage/daily-{YYYY-MM-DD}`.
+- ~~Chats del agente IA solo en localStorage~~ → persistencia Firestore
+  `users/{uid}/agentChats` + subcollection `messages` con
+  `useAgentChatHistory` hook cross-device.
+- ~~Workspace search solo metadata~~ → ahora consulta
+  `searchableContent`.
+- ~~Custom claims no se cableaban en mutaciones members~~ →
+  `syncWorkspaceClaims` cableado en backend (Cloud Function trigger
+  creado pero no deployado — defense in depth, no se necesita).
+- ~~Citaciones sin grafo~~ → subcollection
+  `documents/{docId}/citations` + tools agente
+  `query_citation_graph`, `find_related_via_graph`, `expand_context`.
+  Endpoint admin `/api/admin/citations/backfill` + cron diario 04:00 UTC.
+- ~~Upload >50MB cortaba~~ → endpoints multipart
+  (`/api/upload/multipart/{initiate,sign-part,complete,abort}`).
+- ~~Git providers solo Forgejo interno~~ → vault AES-256-GCM +
+  isomorphic-git para vincular repos externos (GitHub, GitLab, SSH).
+- ~~next-pwa@5.6.0 EOL~~ → migrado a `@ducanh2912/next-pwa@10.2.9`
+  (fork mantenido) + SW auto-registra en App Router.
 
 ## 11. Harness de Claude Code en este workspace
 
