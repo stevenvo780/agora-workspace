@@ -45,7 +45,7 @@ npm test 2>&1 | tail -3
 ```bash
 curl -sf -o /dev/null -w "Front:  %{http_code} %{time_total}s\n" -m 8 https://agora.elenxos.com/api/diag
 curl -sf -o /dev/null -w "Back:   %{http_code} %{time_total}s\n" -m 8 https://agora-backend-578238159459.us-central1.run.app/health
-curl -sf -o /dev/null -w "Hub:    %{http_code} %{time_total}s\n" -m 8 https://hub.humanizar-dev.cloud/health
+curl -sf -o /dev/null -w "Hub:    %{http_code} %{time_total}s\n" -m 8 https://hub.elenxos.com/health
 ssh humanizar2 'docker ps --filter name=edu-worker --format "{{.Names}}" | wc -l'
 ```
 

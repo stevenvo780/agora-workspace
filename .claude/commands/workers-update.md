@@ -40,7 +40,7 @@ gcloud compute ssh agora-hub --zone=us-central1-a --project=udea-filosofia --qui
 
 Si algún worker NO reconecta, verificar:
 - `ssh humanizar2 'docker logs edu-worker-<wsId> --tail 30'` — buscar errores HTTP/2 o auth.
-- `NEXUS_URL` del container `docker inspect edu-worker-<wsId> | grep NEXUS_URL` debe ser `https://hub.humanizar-dev.cloud`.
+- `NEXUS_URL` del container `docker inspect edu-worker-<wsId> | grep NEXUS_URL` debe ser `https://hub.elenxos.com`.
 
 ## NO hacer
 

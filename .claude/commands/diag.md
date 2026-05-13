@@ -23,9 +23,9 @@ gcloud run services describe agora-backend --region=us-central1 --project=udea-f
 gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="agora-backend" AND severity>=ERROR' --limit 5 --format='value(timestamp,severity,textPayload,jsonPayload.message)' --freshness=1h --project=udea-filosofia
 ```
 
-### Hub (GCP VM `agora-hub`, edu-hub.service, hub.humanizar-dev.cloud)
+### Hub (GCP VM `agora-hub`, edu-hub.service, hub.elenxos.com)
 ```bash
-curl -s -o /dev/null -w "hub /health: HTTP %{http_code} (%{time_total}s)\n" https://hub.humanizar-dev.cloud/health
+curl -s -o /dev/null -w "hub /health: HTTP %{http_code} (%{time_total}s)\n" https://hub.elenxos.com/health
 gcloud compute ssh agora-hub --zone=us-central1-a --project=udea-filosofia --quiet --command='sudo systemctl is-active edu-hub && sudo journalctl -u edu-hub --since "5 minutes ago" --no-pager | grep -ciE "error|denied|fail|unhandled"'
 ```
 

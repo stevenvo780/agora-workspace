@@ -51,14 +51,14 @@ agora.elenxos.com (Vercel — AgoraFront)
                                           └─ Firestore + MinIO + Forgejo + Hub/workers
 
 agora-hub  (GCP Compute Engine e2-micro free tier, us-central1)
-  IP 34.72.204.171  ·  dominio hub.humanizar-dev.cloud  ·  Caddy h1 only
+  IP 34.72.204.171  ·  dominio hub.elenxos.com  ·  Caddy h1 only
   ├─ AgoraHub (systemd edu-hub.service, user no-root edu-hub) — socket.io 3010
   └─ ProtectSystem + apt-cron weekly + firewall raw 3010 cerrado (solo 443)
 
 humanizar2  (NetBird 100.98.5.11, user `humanizar`)
   ├─ agora-host-sync.service — daemon que sincroniza workers ↔ NAS
   └─ ~35 containers edu-worker-<wsId> (imagen stevenvo780/edu-worker:latest)
-       NEXUS_URL=https://hub.humanizar-dev.cloud
+       NEXUS_URL=https://hub.elenxos.com
 
 NAS  (NetBird 100.98.67.189)
   ├─ MinIO (S3-compatible)        bucket agora-blobs
@@ -86,7 +86,7 @@ NAS  (NetBird 100.98.67.189)
 - `NEXUS_URL` debe estar seteado en AgoraBack (Cloud Run) para que las
   tools del agente que llaman al worker (`run_command`, `read_file`,
   `write_file`, etc.) sepan a dónde apuntar. Default real:
-  `https://hub.humanizar-dev.cloud`.
+  `https://hub.elenxos.com`.
 - Daemon `agora-host-sync` ignora `.scratch/`, `.agent-tmp/`, `tmp-*`,
   `*.tmp` (Bug I-2 Opción B). Si añadís hard-coded patterns, NO te
   pases — el `.syncignore` editable del workspace debe seguir mandando.
@@ -160,14 +160,14 @@ Internamente: `scp dist/index.js` a la VM `agora-hub` (IP `34.72.204.171`),
 mover a `/opt/edu-hub/dist/`, `systemctl restart edu-hub` (user `edu-hub`
 no-root via systemd ProtectSystem).
 
-Health: `curl https://hub.humanizar-dev.cloud/health` (Caddy frente al
+Health: `curl https://hub.elenxos.com/health` (Caddy frente al
 3010, `protocols h1` only por engine.io). El firewall raw 3010 está
 cerrado; solo 443 acepta tráfico externo.
 
 > Migración 2026-05: el hub vivía como `systemd --user` en `humanizar2`.
 > Hoy corre en VM dedicada GCP e2-micro free tier (~$0/mes). Los workers
 > siguen en `humanizar2`. Tras un deploy del hub, los workers reconectan
-> automáticamente porque `NEXUS_URL=https://hub.humanizar-dev.cloud`.
+> automáticamente porque `NEXUS_URL=https://hub.elenxos.com`.
 
 ### AgoraWorker (DockerHub + humanizar2)
 ```bash
@@ -193,7 +193,7 @@ Hosts:
   por jump host (NAS): `ssh nas ssh humanizar2 '...'`. Reemplazó a
   `stev-server` (`stev@100.98.8.227`) como host de workers.
 - **agora-hub** — VM GCP Compute Engine e2-micro free tier en us-central1,
-  IP `34.72.204.171`, dominio `hub.humanizar-dev.cloud`. Hostea AgoraHub
+  IP `34.72.204.171`, dominio `hub.elenxos.com`. Hostea AgoraHub
   como systemd unit (no `--user`) con usuario no-root `edu-hub`. Acceso
   SSH vía `gcloud compute ssh agora-hub --zone=us-central1-a`.
 - **GCP** — proyecto `udea-filosofia` (mismo que Firebase). `gcloud auth
@@ -209,7 +209,7 @@ ssh nas ssh humanizar2 'tail -50 /home/humanizar/logs/agora-host-sync.log'
 
 # Estado del hub (GCP VM)
 gcloud compute ssh agora-hub --zone=us-central1-a --command='systemctl status edu-hub'
-curl -s https://hub.humanizar-dev.cloud/health
+curl -s https://hub.elenxos.com/health
 
 # Workers (35 vivos en humanizar2)
 ssh nas ssh humanizar2 'docker ps --filter name=edu-worker --format "table {{.Names}}\t{{.Status}}"'

@@ -30,7 +30,7 @@ Target: $ARGUMENTS
    gcloud run services describe agora-backend --region=us-central1 --project=udea-filosofia --format='value(status.traffic[].revisionName,status.traffic[].percent)'
 
    # Hub
-   curl -sf -m 5 https://hub.humanizar-dev.cloud/health
+   curl -sf -m 5 https://hub.elenxos.com/health
 
    # Workers
    ssh humanizar2 'docker ps --filter name=edu-worker --format "{{.Names}}" | wc -l'
