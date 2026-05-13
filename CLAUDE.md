@@ -303,9 +303,8 @@ Si reaparecen, comunicar al user:
   critical/high y validar con tests de smoke por servicio.
 - **`MERCADOPAGO_WEBHOOK_SECRET`** debe estar en producción de AgoraBack:
   el webhook hace fail-closed sin secret.
-- **`noUncheckedIndexedAccess`** activado en el slice de contratos/lib/tipos
-  de AgoraFront vía `tsconfig.contracts.json`. Habilitarlo en todo descubre
-  muchos errores reales — migración aparte.
+- ~~`noUncheckedIndexedAccess` solo en slice de contratos/lib~~ → ya está
+  global en `tsconfig.json` (commits `84b6d51` + `f5cdce7`). typecheck limpio.
 
 ### Resueltos (no perseguir)
 - ~~Storage usage en Firebase Storage~~ → migrado: lee `size` de Firestore.
