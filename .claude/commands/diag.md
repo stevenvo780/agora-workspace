@@ -1,5 +1,5 @@
 ---
-description: Health check completo del sistema Agora — Vercel front, Cloud Run back, hub agora-hub (GCP VM), workers humanizar2, NAS (MinIO/Forgejo). Reporta estado por capa con evidencia concreta. Uso típico al empezar día o tras un incidente.
+description: Health check completo del sistema Agora — Vercel front, Cloud Run back, hub agora-storage (Hostinger VPS), workers humanizar2, MinIO/Forgejo en agora-storage. Reporta estado por capa con evidencia concreta. Uso típico al empezar día o tras un incidente.
 argument-hint: "[capa opcional: front|back|hub|workers|nas|all (default: all)]"
 ---
 
@@ -23,10 +23,10 @@ gcloud run services describe agora-backend --region=us-central1 --project=udea-f
 gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="agora-backend" AND severity>=ERROR' --limit 5 --format='value(timestamp,severity,textPayload,jsonPayload.message)' --freshness=1h --project=udea-filosofia
 ```
 
-### Hub (GCP VM `agora-hub`, edu-hub.service, hub.elenxos.com)
+### Hub (Hostinger VPS `agora-storage`, edu-hub.service, hub.elenxos.com)
 ```bash
 curl -s -o /dev/null -w "hub /health: HTTP %{http_code} (%{time_total}s)\n" https://hub.elenxos.com/health
-gcloud compute ssh agora-hub --zone=us-central1-a --project=udea-filosofia --quiet --command='sudo systemctl is-active edu-hub && sudo journalctl -u edu-hub --since "5 minutes ago" --no-pager | grep -ciE "error|denied|fail|unhandled"'
+ssh root@76.13.118.239 'systemctl is-active edu-hub && journalctl -u edu-hub --since "5 minutes ago" --no-pager | grep -ciE "error|denied|fail|unhandled"'
 ```
 
 ### Workers (containers Docker en humanizar2)
@@ -36,10 +36,10 @@ ssh humanizar2 'docker ps -a --filter name=edu-worker --filter "status=exited" -
 ssh humanizar2 'systemctl status agora-host-sync --no-pager 2>&1 | head -5'
 ```
 
-### NAS (MinIO + Forgejo)
+### Storage (MinIO + Forgejo en agora-storage)
 ```bash
-ssh nas 'docker ps --filter name=agora --format "{{.Names}}\t{{.Status}}"'
-ssh nas 'docker exec agora-minio mc admin info adm 2>/dev/null | head'
+ssh root@76.13.118.239 'docker compose -f /opt/agora-stack/docker-compose.yml ps --format "table {{.Name}}\t{{.Status}}"'
+ssh root@76.13.118.239 'docker compose -f /opt/agora-stack/docker-compose.yml exec agora-minio mc admin info adm 2>/dev/null | head'
 ```
 
 ## Output esperado
@@ -53,8 +53,8 @@ back            🟢/🔴/⚪   <ms o error> + ERROR count 1h
 hub             🟢/🔴/⚪   <active|inactive> + errors 5min
 workers         🟢/🔴/⚪   <up>/35 baseline (exited count)
 sync-daemon     🟢/🔴/⚪   <active|loop|down>
-nas-minio       🟢/🔴/⚪   <up|down>
-nas-forgejo     🟢/🔴/⚪   <up|down>
+vps-minio       🟢/🔴/⚪   <up|down>
+vps-forgejo     🟢/🔴/⚪   <up|down>
 ```
 
 🟢 = OK, 🔴 = falla, ⚪ = no chequeable.

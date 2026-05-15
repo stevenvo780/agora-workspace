@@ -14,7 +14,7 @@ Target: $ARGUMENTS
    - Si no, infiérilo del último command bash en el transcript:
      - `vercel deploy --prod` → target=front
      - `gcloud run deploy agora-backend` → target=back
-     - GCP VM `agora-hub` restart o systemctl restart edu-hub → target=hub
+     - Hostinger VPS `agora-storage` systemctl restart edu-hub → target=hub
      - `docker push stevenvo780/edu-worker` o `edu-worker-manager update all` → target=worker
    - Si no hay pista, asumí `all`.
 
@@ -45,7 +45,7 @@ Target: $ARGUMENTS
    - Si dijo `DEPLOY_FAILED` → propones rollback inmediato:
      - **Front**: `vercel alias set <previous-deployment> agora.elenxos.com`
      - **Back**: `gcloud run services update-traffic agora-backend --to-revisions=<previous>=100 --region=us-central1`
-     - **Hub** (GCP VM `agora-hub`): ssh + checkout commit anterior + `sudo systemctl restart edu-hub`
+     - **Hub** (Hostinger VPS `agora-storage`): `ssh root@76.13.118.239` + checkout commit anterior + `sudo systemctl restart edu-hub`
      - **Worker**: `docker pull stevenvo780/edu-worker:<previous-sha> && ssh humanizar2 'edu-worker-manager update all'`
 
 ## Validaciones específicas adicionales
@@ -60,9 +60,9 @@ Target: $ARGUMENTS
 - `gcloud logging read ... severity>=ERROR --freshness=2m` debe estar vacío.
 - Env vars críticas preservadas: `FORGEJO_*`, `NAS_S3_*`, `FIREBASE_DATABASE_URL`.
 
-### Hub (GCP VM `agora-hub`)
+### Hub (Hostinger VPS `agora-storage`, 76.13.118.239)
 - Caddy h1-only (engine.io necesita HTTP/1.1 para WebSocket upgrade).
-- `systemctl is-active edu-hub` → `active`.
+- `ssh root@76.13.118.239 'systemctl is-active edu-hub'` → `active`.
 
 ### Worker
 - ~35 containers vivos post-rollout (baseline).
