@@ -23,7 +23,7 @@ terminal + git en un solo lugar.
 EducacionCooperativa/                    ← este wrapper local (NO repo git)
 ├── AgoraFront/   stevenvo780/EducacionCooperativa  ← Next.js / Vercel
 ├── AgoraBack/    stevenvo780/agora-backend         ← Express / Cloud Run
-├── AgoraHub/     stevenvo780/agora-hub             ← socket.io / humanizar2
+├── AgoraHub/     stevenvo780/agora-hub             ← socket.io / agora-storage VPS
 ├── AgoraWorker/  stevenvo780/agora-worker          ← Docker / DockerHub
 ├── AgoraCli/     stevenvo780/agora-cli             ← CLI local (sin publicar)
 ├── ST/           stevenvo780/ST                    ← npm @stevenvo780/st-lang
@@ -50,22 +50,25 @@ agora.elenxos.com (Vercel — AgoraFront)
                                           ├─ tools del agente ejecutadas en Back
                                           └─ Firestore + MinIO + Forgejo + Hub/workers
 
-agora-hub  (GCP Compute Engine e2-micro free tier, us-central1)
-  IP 34.72.204.171  ·  dominio hub.elenxos.com  ·  Caddy h1 only
-  ├─ AgoraHub (systemd edu-hub.service, user no-root edu-hub) — socket.io 3010
-  └─ ProtectSystem + apt-cron weekly + firewall raw 3010 cerrado (solo 443)
+agora-storage  (Hostinger VPS, IP 76.13.118.239, Ubuntu 24.04, 2 CPU AMD EPYC, 8 GB RAM)
+  Dominios: s3.elenxos.com · git.elenxos.com · hub.elenxos.com
+  ├─ Caddy (TLS Let's Encrypt automático)
+  ├─ edu-hub systemd (socket.io puerto 3010, user no-root edu-hub)
+  └─ Docker Compose (/opt/agora-stack/):
+     ├─ agora-minio   (MinIO S3, bucket agora-blobs, ~3909 objetos)
+     ├─ agora-forgejo (Forgejo v11, 13 repos org "agora")
+     └─ agora-postgres (Postgres 17, DB forgejo)
 
 humanizar2  (NetBird 100.98.5.11, user `humanizar`)
-  ├─ agora-host-sync.service — daemon que sincroniza workers ↔ NAS
+  ├─ agora-host-sync.service — daemon que sincroniza workers ↔ MinIO
   └─ ~35 containers edu-worker-<wsId> (imagen stevenvo780/edu-worker:latest)
        NEXUS_URL=https://hub.elenxos.com
 
-NAS  (NetBird 100.98.67.189)
-  ├─ MinIO (S3-compatible)        bucket agora-blobs
-  ├─ Forgejo (Git)                 org "agora", 1 repo por workspace
-  ├─ Postgres 17                   (preflight para migraciones futuras)
-  └─ Firebase Auth + Firestore + RTDB (proyecto udea-filosofia, no en el NAS)
-       Service Account Firebase rotada (Secret Manager v3 activa, v1/v2 disabled)
+Firebase Auth + Firestore + RTDB (proyecto udea-filosofia)
+  Service Account rotada (Secret Manager v3 activa, v1/v2 disabled)
+
+NAS (NetBird 100.98.67.189) — RETIRADO de producción. Mantener apagado.
+agora-hub (GCP Compute Engine us-central1) — RETIRADO (apagado tras migración a Hostinger).
 ```
 
 ### Reglas críticas de la arquitectura (no romper)
@@ -147,7 +150,7 @@ Secrets cableados (no tocar a menos que sea necesario):
 - IAM bindings: `secretmanager.secretAccessor`, `datastore.user`,
   `firebase.sdkAdminServiceAgent` para la SA `<projectNumber>-compute@`.
 
-### AgoraHub (GCP VM `agora-hub`)
+### AgoraHub (Hostinger VPS `agora-storage`)
 ```bash
 cd AgoraHub
 npm run build
@@ -156,26 +159,26 @@ cd ../AgoraWorker/desplieges-prod
 ./deploy_hub.sh
 ```
 
-Internamente: `scp dist/index.js` a la VM `agora-hub` (IP `34.72.204.171`),
+Internamente: `scp dist/index.js` al VPS `76.13.118.239` (root via SSH key),
 mover a `/opt/edu-hub/dist/`, `systemctl restart edu-hub` (user `edu-hub`
-no-root via systemd ProtectSystem).
+no-root via systemd).
 
 Health: `curl https://hub.elenxos.com/health` (Caddy frente al
 3010, `protocols h1` only por engine.io). El firewall raw 3010 está
 cerrado; solo 443 acepta tráfico externo.
 
-> Migración 2026-05: el hub vivía como `systemd --user` en `humanizar2`.
-> Hoy corre en VM dedicada GCP e2-micro free tier (~$0/mes). Los workers
-> siguen en `humanizar2`. Tras un deploy del hub, los workers reconectan
-> automáticamente porque `NEXUS_URL=https://hub.elenxos.com`.
+> Migración 2026-05: el hub vivía en VM GCP `agora-hub` (e2-micro).
+> Hoy corre en Hostinger VPS `agora-storage` junto a MinIO y Forgejo.
+> Los workers siguen en `humanizar2`. Tras un deploy del hub, los workers
+> reconectan automáticamente porque `NEXUS_URL=https://hub.elenxos.com`.
 
 ### AgoraWorker (DockerHub + humanizar2)
 ```bash
 cd AgoraWorker/worker
 docker build -t stevenvo780/edu-worker:latest .
 docker push stevenvo780/edu-worker:latest
-# en humanizar2 (via NAS como jump host):
-ssh nas 'ssh humanizar2 "echo PASS | sudo -S edu-worker-manager update all"'
+# en humanizar2 (acceso directo NetBird):
+ssh humanizar2 'echo PASS | sudo -S edu-worker-manager update all'
 ```
 
 `edu-worker-manager update all` recrea los ~27 containers con la imagen
@@ -186,36 +189,36 @@ nueva. Cada worker se reconecta al hub en <5s.
 Acceso a hosts y servicios: **`AgoraFront/.claude/secrets.md`** (gitignored).
 
 Hosts:
-- **NAS** — `nas@100.98.67.189` (NetBird). Hostea MinIO, Forgejo, Postgres,
-  filebrowser. `docker exec agora-{minio,forgejo,...}` para acción directa.
+- **agora-storage** — `root@76.13.118.239` (Hostinger VPS, SSH key). Hostea
+  MinIO (`s3.elenxos.com`), Forgejo (`git.elenxos.com`), AgoraHub
+  (`hub.elenxos.com`) y Postgres 17. Docker Compose en `/opt/agora-stack/`.
+  `docker compose -f /opt/agora-stack/docker-compose.yml exec agora-minio ...`
+  para acción directa. Primario de producción.
 - **humanizar2** — `humanizar@100.98.5.11` (NetBird, alias SSH
   `humanizar2`). Hostea workers Docker y daemon `agora-host-sync`. Acceso
-  por jump host (NAS): `ssh nas ssh humanizar2 '...'`. Reemplazó a
-  `stev-server` (`stev@100.98.8.227`) como host de workers.
-- **agora-hub** — VM GCP Compute Engine e2-micro free tier en us-central1,
-  IP `34.72.204.171`, dominio `hub.elenxos.com`. Hostea AgoraHub
-  como systemd unit (no `--user`) con usuario no-root `edu-hub`. Acceso
-  SSH vía `gcloud compute ssh agora-hub --zone=us-central1-a`.
+  directo: `ssh humanizar2 '...'`. Reemplazó a `stev-server`
+  (`stev@100.98.8.227`) como host de workers.
 - **GCP** — proyecto `udea-filosofia` (mismo que Firebase). `gcloud auth
   login` ya está; `gcloud config set project udea-filosofia` por defecto.
-  Cloud Ops Agent v2.66 instalado en `agora-hub` con 2 dashboards Cloud
-  Monitoring + 4 alerting policies (email a `stevenvallejo780@gmail.com`).
+  Cloud Run para AgoraBack.
+- **NAS** (`nas@100.98.67.189`) y **agora-hub** (GCP `34.72.204.171`) —
+  RETIRADOS de producción. Mantener apagados. Ver historial en git.
 
 Comandos diagnóstico frecuentes:
 ```bash
 # Estado del daemon de sync
-ssh nas ssh humanizar2 'systemctl status agora-host-sync'
-ssh nas ssh humanizar2 'tail -50 /home/humanizar/logs/agora-host-sync.log'
+ssh humanizar2 'systemctl status agora-host-sync'
+ssh humanizar2 'tail -50 /home/humanizar/logs/agora-host-sync.log'
 
-# Estado del hub (GCP VM)
-gcloud compute ssh agora-hub --zone=us-central1-a --command='systemctl status edu-hub'
+# Estado del hub (Hostinger VPS)
+ssh root@76.13.118.239 'systemctl status edu-hub'
 curl -s https://hub.elenxos.com/health
 
 # Workers (35 vivos en humanizar2)
-ssh nas ssh humanizar2 'docker ps --filter name=edu-worker --format "table {{.Names}}\t{{.Status}}"'
+ssh humanizar2 'docker ps --filter name=edu-worker --format "table {{.Names}}\t{{.Status}}"'
 
 # Bucket MinIO (creds en secrets.md):
-ssh nas 'docker exec agora-minio mc ls --recursive adm/agora-blobs/ | head'
+ssh root@76.13.118.239 'docker compose -f /opt/agora-stack/docker-compose.yml exec agora-minio mc ls --recursive adm/agora-blobs/ | head'
 
 # Health pública del Hub (Vercel)
 curl -s https://agora.elenxos.com/api/diag | python3 -m json.tool
@@ -316,8 +319,9 @@ Si reaparecen, comunicar al user:
 - ~~Mono-repo gigante~~ → split a 7 repos con historial preservado
   (`git filter-repo`).
 - ~~Hub en stev-server con `systemd --user`~~ → migrado a VM dedicada
-  GCP `agora-hub` (e2-micro free tier) con user no-root + Caddy h1 +
-  hardening (ProtectSystem, apt-cron, firewall raw 3010 cerrado).
+  GCP `agora-hub` (e2-micro) → migrado definitivamente a Hostinger VPS
+  `agora-storage` (76.13.118.239) con MinIO + Forgejo + Postgres. GCP
+  `agora-hub` retirado y apagado.
 - ~~Service Account Firebase sin rotación~~ → rotada (Secret Manager v3
   enabled, v1/v2 disabled). Backfill custom claims ejecutado.
 - ~~Agente IA sin rate limit~~ → daily token budget 500k + hourly cap

@@ -29,7 +29,7 @@ ssh humanizar2 'docker ps --filter name=edu-worker --format "{{.Names}}\t{{.Stat
 ssh humanizar2 'docker ps -a --filter name=edu-worker --filter "status=exited" --format "{{.Names}}" | head'
 
 # 6. Verificar reconexión al hub (deben aparecer registers nuevos)
-gcloud compute ssh agora-hub --zone=us-central1-a --project=udea-filosofia --quiet --command='sudo journalctl -u edu-hub --since "60 seconds ago" --no-pager | grep -c "Worker registered"'
+ssh root@76.13.118.239 'journalctl -u edu-hub --since "60 seconds ago" --no-pager | grep -c "Worker registered"'
 ```
 
 ## Validación post-rollout
