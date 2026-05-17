@@ -345,6 +345,7 @@ Si reaparecen, comunicar al user:
   isomorphic-git para vincular repos externos (GitHub, GitLab, SSH).
 - ~~next-pwa@5.6.0 EOL~~ → migrado a `@ducanh2912/next-pwa@10.2.9`
   (fork mantenido) + SW auto-registra en App Router.
+- ~~ST V4 evolution~~ → 52+ módulos publicados en npm como `@stevenvo780/st-lang@4.5.0` (de 3.2.3). 1583 → 4041 tests. Releases v4.0.0 → v4.5.0 con tags GitHub. AgoraFront y AgoraBack consumen 4.5.0 en prod.
 
 ## 11. Harness de Claude Code en este workspace
 
@@ -440,6 +441,15 @@ Son librerías npm publicadas (`@stevenvo780/st-lang`, `@stevenvo780/autologic`)
 AgoraFront las consume vía `package.json`. Si el user pide cambios al
 runtime ST o al formalizador, trabajalos en sus repos respectivos y
 luego `npm publish` + `npm update` en AgoraFront.
+
+ST está en `@stevenvo780/st-lang@4.5.0` (era 3.2.3). 52+ módulos nuevos cubriendo:
+tipos dependientes (MLTT), Curry-Howard + System F, modal frames K/T/B/4/5/D + S4/S5,
+μ-calculus + CTL + LTL, intuitionistic NJ + Kripke, sequents G3/LK + cut-elimination,
+FOL+equality, ALC DL, TRS + Knuth-Bendix, anti-unification, HO-unify, λ-calc + SKI + NbE,
+π-calculus + linear/affine, proof nets, refinement types, hyperreal probabilistic,
+Bayesian + MLN, AGM belief revision, abduction, FCA, Dung argumentation, default logic,
+STRIPS planning, CSP + AC-3, theorem cache, proof exchange Ed25519, time-travel snapshots,
+profile bridge (Glivenko/Gödel). Suite: 4041 tests (era 1583).
 
 ### AgoraCli
 Aún no publicado. Vive en su propio repo para que en el futuro `npm i -g
