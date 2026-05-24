@@ -67,11 +67,12 @@ agora-storage  (Hostinger VPS, IP 76.13.118.239, Ubuntu 24.04, 2 CPU AMD EPYC, 8
      ├─ agora-forgejo (Forgejo v11, 13 repos org "agora")
      └─ agora-postgres (Postgres 17, DB forgejo)
 
-humanizar2  (NetBird 100.98.5.11, user `humanizar`) — MUERTO FÍSICAMENTE (2026-05-24)
-  Migración a nuevo server: PENDING (el user gestiona hardware).
-  Workers offline hasta que el nuevo host esté disponible.
-  ├─ agora-host-sync.service — daemon de sync (offline)
-  └─ ~35 containers edu-worker-<wsId> — OFFLINE hasta migración
+ils-server  (NetBird 100.98.245.50, user `ils-server`, user worker `humanizar`)
+  Reemplaza a humanizar2 (muerto 2026-05-24). Ubuntu 24.04, 4 cores, 7.6 GB RAM, 47 GB libres.
+  ├─ Docker 29.5.2 CE instalado, daemon active
+  ├─ agora-host-sync.service — daemon de sync (active, /opt/agora-host-sync/)
+  ├─ edu-worker-manager en /usr/local/bin/ (gestiona workers via /etc/edu-worker/)
+  └─ ~N containers edu-worker-<wsId> — a recrear (ver pendientes §5)
 
 Firebase Auth + Firestore + RTDB (proyecto udea-filosofia)
   Service Account rotada (Secret Manager v3 activa, v1/v2 disabled)
@@ -179,20 +180,17 @@ cerrado; solo 443 acepta tráfico externo.
 > Migración 2026-05: el hub vivía en VM GCP `agora-hub` (e2-micro).
 > Hoy corre en Hostinger VPS `agora-storage` junto a MinIO y Forgejo.
 > `humanizar2` (host de workers) murió físicamente el 2026-05-24.
-> Workers offline hasta que el user migre a nuevo hardware.
-> Cuando el nuevo host esté listo, los workers reconectarán con `NEXUS_URL=https://hub.elenxos.com`.
+> Migración completada 2026-05-24 a `ils-server` (NetBird 100.98.245.50).
+> Pendiente: recrear los workers individuales con los IDs de workspace.
 
-### AgoraWorker (DockerHub + humanizar2)
-
-> **ESTADO (2026-05-24): humanizar2 muerto físicamente. Workers offline.**
-> Imagen publicada en DockerHub; deploy pendiente hasta que el user provea nuevo host.
+### AgoraWorker (DockerHub + ils-server)
 
 ```bash
 cd AgoraWorker/worker
 docker build -t stevenvo780/edu-worker:latest .
 docker push stevenvo780/edu-worker:latest
-# cuando haya nuevo host (reemplaza humanizar2):
-ssh <nuevo-host> 'echo PASS | sudo -S edu-worker-manager update all'
+# en ils-server:
+ssh ils-server 'echo PASS | sudo -S edu-worker-manager update all'
 ```
 
 `edu-worker-manager update all` recrea los containers con la imagen
@@ -208,9 +206,12 @@ Hosts:
   (`hub.elenxos.com`) y Postgres 17. Docker Compose en `/opt/agora-stack/`.
   `docker compose -f /opt/agora-stack/docker-compose.yml exec agora-minio ...`
   para acción directa. Primario de producción.
-- **humanizar2** — MUERTO FÍSICAMENTE (2026-05-24). Workers y daemon
-  `agora-host-sync` offline. Migración a nuevo hardware: PENDING (el user gestiona).
-  No intentar conectar hasta que el user confirme nuevo host.
+- **ils-server** — `ils-server@100.98.245.50` (NetBird, alias SSH `ils-server`).
+  Reemplaza humanizar2 (muerto 2026-05-24). Hostea workers Docker y daemon
+  `agora-host-sync`. Docker 29.5.2, Node.js 22, user `humanizar` (docker group).
+  Config en `/etc/edu-worker/worker.env`. Daemon en `/opt/agora-host-sync/`.
+  Workers a recrear con `sudo edu-worker-manager add <wsId>`.
+- **humanizar2** — MUERTO FÍSICAMENTE (2026-05-24). Reemplazado por ils-server.
 - **GCP** — proyecto `udea-filosofia` (mismo que Firebase). `gcloud auth
   login` ya está; `gcloud config set project udea-filosofia` por defecto.
   Cloud Run para AgoraBack.
@@ -219,16 +220,16 @@ Hosts:
 
 Comandos diagnóstico frecuentes:
 ```bash
-# Estado del daemon de sync (humanizar2 OFFLINE — skip hasta nueva migración)
-# ssh humanizar2 'systemctl status agora-host-sync'
-# ssh humanizar2 'tail -50 /home/humanizar/logs/agora-host-sync.log'
+# Estado del daemon de sync (ils-server)
+ssh ils-server 'sudo systemctl status agora-host-sync'
+ssh ils-server 'sudo tail -50 /home/humanizar/logs/agora-host-sync.log'
 
 # Estado del hub (Hostinger VPS)
 ssh root@76.13.118.239 'systemctl status edu-hub'
 curl -s https://hub.elenxos.com/health
 
-# Workers OFFLINE (humanizar2 muerto) — cuando haya nuevo host, actualizar alias
-# ssh <nuevo-host> 'docker ps --filter name=edu-worker --format "table {{.Names}}\t{{.Status}}"'
+# Workers (ils-server)
+ssh ils-server 'sudo docker ps --filter name=edu-worker --format "table {{.Names}}\t{{.Status}}"'
 
 # Bucket MinIO (creds en secrets.md):
 ssh root@76.13.118.239 'docker compose -f /opt/agora-stack/docker-compose.yml exec agora-minio mc ls --recursive adm/agora-blobs/ | head'
@@ -242,12 +243,10 @@ gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.serv
 
 ## 6. Workers — comportamiento conocido
 
-> **humanizar2 MUERTO (2026-05-24). Workers offline. Sección preservada para
-> cuando el user migre a nuevo hardware.**
-
-- Docker 28.2.2 crasheaba ocasionalmente con bug HTTP/2
-  (`golang.org/x/net/http2.(*Framer).ReadFrame`). Al migrar a nuevo host,
-  evaluar actualizar a Docker más reciente antes de arrastrar este problema.
+- ils-server corre Docker 29.5.2 CE (sin el bug HTTP/2 de Docker 28.2.2 que
+  tenía humanizar2). Workers viven en `/home/humanizar/edu-worker/{workspaces,home}/`.
+- Recrear workers: `ssh ils-server 'echo PASS | sudo -S edu-worker-manager add <wsId>'`.
+  Necesita la lista de workspace IDs activos (consultarlos en Firestore o al user).
 - El handler `agent-command` del worker (en `AgoraWorker/worker/index.js`)
   valida con whitelist (~40 binarios seguros). Si el agente IA pide un
   comando fuera de la whitelist, responde `binary "x" no está en la whitelist`.
