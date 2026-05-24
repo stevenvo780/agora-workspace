@@ -10,9 +10,17 @@
 Plataforma educativa colaborativa con 3 superpoderes:
 1. **Editor MDX rico** (LaTeX, Mermaid, kanban, snippets, glosario semántico).
 2. **Lógica formal**: editor `.st` con 11 perfiles lógicos, formalizador
-   automático, mesa semántica, linter académico.
+   automático, mesa semántica, linter académico. Rutas: `/st-playground-v3`
+   (AI co-pilot 3 columnas) y `/st-notebook` (cells code+markdown, persistencia
+   Firestore `users/{uid}/notebooks`).
 3. **Terminal de trabajo por workspace**: cada usuario tiene un container
    Docker con `/workspace` montado y sincronizado contra MinIO + Firestore.
+
+Ecosistema ST publicado (independiente de Agora):
+- `@stevenvo780/st-mcp@0.1.0` — MCP server, 4 tools: check/derive/countermodel/formalize
+- `@stevenvo780/st-cli@0.1.0` — CLI, 6 subcomandos: check/derive/countermodel/formalize/export/repl
+- `vscode-st@0.1.0.vsix` — Extensión VSCode (LSP + grammar + snippets). Build local; marketplace pendiente PAT Azure.
+- GitHub Action `verify-st-claims-v1` — `.github/actions/verify-st-claims/` en repo ST.
 
 Usuarios objetivo: estudiantes y docentes; también devs que quieren web +
 terminal + git en un solo lugar.
@@ -59,10 +67,11 @@ agora-storage  (Hostinger VPS, IP 76.13.118.239, Ubuntu 24.04, 2 CPU AMD EPYC, 8
      ├─ agora-forgejo (Forgejo v11, 13 repos org "agora")
      └─ agora-postgres (Postgres 17, DB forgejo)
 
-humanizar2  (NetBird 100.98.5.11, user `humanizar`)
-  ├─ agora-host-sync.service — daemon que sincroniza workers ↔ MinIO
-  └─ ~35 containers edu-worker-<wsId> (imagen stevenvo780/edu-worker:latest)
-       NEXUS_URL=https://hub.elenxos.com
+humanizar2  (NetBird 100.98.5.11, user `humanizar`) — MUERTO FÍSICAMENTE (2026-05-24)
+  Migración a nuevo server: PENDING (el user gestiona hardware).
+  Workers offline hasta que el nuevo host esté disponible.
+  ├─ agora-host-sync.service — daemon de sync (offline)
+  └─ ~35 containers edu-worker-<wsId> — OFFLINE hasta migración
 
 Firebase Auth + Firestore + RTDB (proyecto udea-filosofia)
   Service Account rotada (Secret Manager v3 activa, v1/v2 disabled)
@@ -169,19 +178,24 @@ cerrado; solo 443 acepta tráfico externo.
 
 > Migración 2026-05: el hub vivía en VM GCP `agora-hub` (e2-micro).
 > Hoy corre en Hostinger VPS `agora-storage` junto a MinIO y Forgejo.
-> Los workers siguen en `humanizar2`. Tras un deploy del hub, los workers
-> reconectan automáticamente porque `NEXUS_URL=https://hub.elenxos.com`.
+> `humanizar2` (host de workers) murió físicamente el 2026-05-24.
+> Workers offline hasta que el user migre a nuevo hardware.
+> Cuando el nuevo host esté listo, los workers reconectarán con `NEXUS_URL=https://hub.elenxos.com`.
 
 ### AgoraWorker (DockerHub + humanizar2)
+
+> **ESTADO (2026-05-24): humanizar2 muerto físicamente. Workers offline.**
+> Imagen publicada en DockerHub; deploy pendiente hasta que el user provea nuevo host.
+
 ```bash
 cd AgoraWorker/worker
 docker build -t stevenvo780/edu-worker:latest .
 docker push stevenvo780/edu-worker:latest
-# en humanizar2 (acceso directo NetBird):
-ssh humanizar2 'echo PASS | sudo -S edu-worker-manager update all'
+# cuando haya nuevo host (reemplaza humanizar2):
+ssh <nuevo-host> 'echo PASS | sudo -S edu-worker-manager update all'
 ```
 
-`edu-worker-manager update all` recrea los ~27 containers con la imagen
+`edu-worker-manager update all` recrea los containers con la imagen
 nueva. Cada worker se reconecta al hub en <5s.
 
 ## 5. Operación de la infraestructura
@@ -194,10 +208,9 @@ Hosts:
   (`hub.elenxos.com`) y Postgres 17. Docker Compose en `/opt/agora-stack/`.
   `docker compose -f /opt/agora-stack/docker-compose.yml exec agora-minio ...`
   para acción directa. Primario de producción.
-- **humanizar2** — `humanizar@100.98.5.11` (NetBird, alias SSH
-  `humanizar2`). Hostea workers Docker y daemon `agora-host-sync`. Acceso
-  directo: `ssh humanizar2 '...'`. Reemplazó a `stev-server`
-  (`stev@100.98.8.227`) como host de workers.
+- **humanizar2** — MUERTO FÍSICAMENTE (2026-05-24). Workers y daemon
+  `agora-host-sync` offline. Migración a nuevo hardware: PENDING (el user gestiona).
+  No intentar conectar hasta que el user confirme nuevo host.
 - **GCP** — proyecto `udea-filosofia` (mismo que Firebase). `gcloud auth
   login` ya está; `gcloud config set project udea-filosofia` por defecto.
   Cloud Run para AgoraBack.
@@ -206,16 +219,16 @@ Hosts:
 
 Comandos diagnóstico frecuentes:
 ```bash
-# Estado del daemon de sync
-ssh humanizar2 'systemctl status agora-host-sync'
-ssh humanizar2 'tail -50 /home/humanizar/logs/agora-host-sync.log'
+# Estado del daemon de sync (humanizar2 OFFLINE — skip hasta nueva migración)
+# ssh humanizar2 'systemctl status agora-host-sync'
+# ssh humanizar2 'tail -50 /home/humanizar/logs/agora-host-sync.log'
 
 # Estado del hub (Hostinger VPS)
 ssh root@76.13.118.239 'systemctl status edu-hub'
 curl -s https://hub.elenxos.com/health
 
-# Workers (35 vivos en humanizar2)
-ssh humanizar2 'docker ps --filter name=edu-worker --format "table {{.Names}}\t{{.Status}}"'
+# Workers OFFLINE (humanizar2 muerto) — cuando haya nuevo host, actualizar alias
+# ssh <nuevo-host> 'docker ps --filter name=edu-worker --format "table {{.Names}}\t{{.Status}}"'
 
 # Bucket MinIO (creds en secrets.md):
 ssh root@76.13.118.239 'docker compose -f /opt/agora-stack/docker-compose.yml exec agora-minio mc ls --recursive adm/agora-blobs/ | head'
@@ -229,16 +242,18 @@ gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.serv
 
 ## 6. Workers — comportamiento conocido
 
-- Docker 28.2.2 en humanizar2 crashea ocasionalmente con un bug HTTP/2
-  (`golang.org/x/net/http2.(*Framer).ReadFrame`). Cuando crashea, todos los
-  workers reciben SIGTERM→SIGKILL. `agora-host-sync` los revive en el
-  siguiente ciclo (cada 5s).
+> **humanizar2 MUERTO (2026-05-24). Workers offline. Sección preservada para
+> cuando el user migre a nuevo hardware.**
+
+- Docker 28.2.2 crasheaba ocasionalmente con bug HTTP/2
+  (`golang.org/x/net/http2.(*Framer).ReadFrame`). Al migrar a nuevo host,
+  evaluar actualizar a Docker más reciente antes de arrastrar este problema.
 - El handler `agent-command` del worker (en `AgoraWorker/worker/index.js`)
   valida con whitelist (~40 binarios seguros). Si el agente IA pide un
   comando fuera de la whitelist, responde `binary "x" no está en la whitelist`.
 - Para añadir un worker manualmente sin sudo: replica `docker run` con
   `--network=host`, `--user=estudiante`, mounts en
-  `/home/humanizar/edu-worker/...`, env igual a otro worker pero con
+  `/home/<nuevo-host>/edu-worker/...`, env igual a otro worker pero con
   `WORKER_TOKEN=<wsId>`.
 - Existe `edu-worker-manager add <wsId>` que requiere sudo.
 
@@ -295,11 +310,15 @@ gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.serv
 
 Si reaparecen, comunicar al user:
 
+- **Migración workers a nuevo hardware** — humanizar2 muerto. El user gestiona
+  nuevo host. Cuando esté listo: instalar Docker, `edu-worker-manager`, imagen
+  `stevenvo780/edu-worker:latest`, y `agora-host-sync` daemon. Actualizar
+  `NEXUS_URL` y secrets. Workers ofline mientras tanto.
+- **vscode-st marketplace** — `vscode-st@0.1.0.vsix` build local listo. Falta
+  PAT Azure para publicar en VS Code Marketplace (el user lo gestiona).
 - **Retirar las rutas bare deprecated** de AgoraBack cuando pase el sunset
   (`BARE_API_ROUTES_SUNSET`, default 2026-08-01). Hasta entonces deben
   responder con `Deprecation`, `Sunset` y `Link rel="canonical"`.
-- **Docker daemon** crashes recurrentes en humanizar2 — recomendar
-  `apt upgrade docker-ce` cuando haya ventana de mantenimiento.
 - **MinIO basura histórica** (~32 objetos en raíz) — no afecta nada
   pero ensucia.
 - **Vulnerabilidades npm** en Front/Hub/Worker/Autologic — priorizar
@@ -345,7 +364,15 @@ Si reaparecen, comunicar al user:
   isomorphic-git para vincular repos externos (GitHub, GitLab, SSH).
 - ~~next-pwa@5.6.0 EOL~~ → migrado a `@ducanh2912/next-pwa@10.2.9`
   (fork mantenido) + SW auto-registra en App Router.
-- ~~ST V4 evolution~~ → 52+ módulos publicados en npm como `@stevenvo780/st-lang@4.5.0` (de 3.2.3). 1583 → 4041 tests. Releases v4.0.0 → v4.5.0 con tags GitHub. AgoraFront y AgoraBack consumen 4.5.0 en prod.
+- ~~ST V4 evolution~~ → 52+ módulos en `@stevenvo780/st-lang@4.5.0` (de 3.2.3). 1583 → 4041 tests. Releases v4.0.0 → v4.5.0.
+- ~~ST Ciclo 3 features~~ → `@stevenvo780/st-lang@4.15.0`: proof-mining, stnb notebook format, dl-hybrid DDL, lemma-rag RAG. 4041 → 6333+ → 6565+ tests. `@4.15.1` agrega subpath tactic-dsl (workaround `createRequire` en AgoraBack resuelto). AgoraFront y AgoraBack consumen 4.15.x en prod.
+- ~~Bug unify/occursIn~~ → fix `b5ae00d` (fast-check seed `286462923`). Correctness issue en unificación, resuelto antes de 4.15.0.
+- ~~ST Playground sin AI co-pilot~~ → `/st-playground-v3` (3 columnas responsive + AI) + `/st-notebook` (cells code+markdown, Firestore `users/{uid}/notebooks`). Deployed en Vercel.
+- ~~AgoraBack sin tools ST~~ → 2 nuevas tools del agente: `st_proof_mine` y `st_tactic_apply`. Deployed en Cloud Run revision `agora-backend-00159-b7l`.
+- ~~Firestore rules sin notebooks~~ → rules para `users/{uid}/notebooks` deployed.
+- ~~RTDB rules sin collab~~ → rules para `/collab/{workspaceId}/{docId}` con `auth.token.workspaces` custom claims deployed.
+- ~~Editor MDX rehidratación al reabrir~~ → bug lazy-plugin remount en `MosaicEditor.tsx`, fix aplicado.
+- ~~KaTeX no renderizaba en cells ST notebook~~ → `remark-math` + `rehype-katex` integrados.
 
 ## 11. Harness de Claude Code en este workspace
 
@@ -442,14 +469,16 @@ AgoraFront las consume vía `package.json`. Si el user pide cambios al
 runtime ST o al formalizador, trabajalos en sus repos respectivos y
 luego `npm publish` + `npm update` en AgoraFront.
 
-ST está en `@stevenvo780/st-lang@4.5.0` (era 3.2.3). 52+ módulos nuevos cubriendo:
-tipos dependientes (MLTT), Curry-Howard + System F, modal frames K/T/B/4/5/D + S4/S5,
-μ-calculus + CTL + LTL, intuitionistic NJ + Kripke, sequents G3/LK + cut-elimination,
-FOL+equality, ALC DL, TRS + Knuth-Bendix, anti-unification, HO-unify, λ-calc + SKI + NbE,
-π-calculus + linear/affine, proof nets, refinement types, hyperreal probabilistic,
-Bayesian + MLN, AGM belief revision, abduction, FCA, Dung argumentation, default logic,
-STRIPS planning, CSP + AC-3, theorem cache, proof exchange Ed25519, time-travel snapshots,
-profile bridge (Glivenko/Gödel). Suite: 4041 tests (era 1583).
+ST está en `@stevenvo780/st-lang@4.15.1` (era 3.2.3 → 4.5.0 → 4.15.x). 52+ módulos de v4.5
+más módulos Ciclo 3: `./reasoning/proof-mining`, `./format/stnb` (notebook .stnb),
+`./logic/profiles/dl-hybrid` + `./reasoning/dl-hybrid` (DDL subset),
+`./reasoning/lemma-rag` (RAG HashEmbedding R^256). Suite: 6565+ tests (era 1583 → 4041).
+Versiones y tags en GitHub: v4.0.0 → v4.15.1.
+
+Ecosistema ST (repos/paquetes adicionales en el mismo repo `ST/`):
+- `@stevenvo780/st-mcp@0.1.0` — publicado en npm. MCP server, 4 tools: check/derive/countermodel/formalize.
+- `@stevenvo780/st-cli@0.1.0` — publicado en npm. CLI, 6 subcomandos: check/derive/countermodel/formalize/export/repl.
+- `vscode-st@0.1.0.vsix` — build local (`.github/actions/verify-st-claims/` Docker action tag `verify-st-claims-v1`). Marketplace VS Code pendiente PAT Azure.
 
 ### AgoraCli
 Aún no publicado. Vive en su propio repo para que en el futuro `npm i -g
