@@ -27,3 +27,7 @@ node_modules/
 # Migration backups locales (NAS → Hostinger 2026-05-13)
 migration-backup-*/
 .claude/scheduled_tasks.lock
+
+# Config MCP de testing local (16-chrome, paths del sandbox) — no va al repo
+.mcp.json
+.mcp.json.bak
