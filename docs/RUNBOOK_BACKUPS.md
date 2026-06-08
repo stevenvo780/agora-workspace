@@ -94,18 +94,18 @@ A escalas razonables (~100x el tamaño actual) el bucket cuesta < $1/mes.
 
 ---
 
-## 2. MinIO — mirror diario intra-NAS
+## 2. MinIO — mirror diario intra-VPS
 
-**Schedule**: 02:00 UTC diario via crontab del user `nas` en el NAS (`100.98.67.189`).
+**Schedule**: 02:00 UTC diario via crontab del user `root` en el VPS `agora-storage` (`76.13.118.239`).
 
 **Origen**: `adm/agora-blobs` (alias `mc adm` configurado en el container `agora-minio`).
-**Destino**: `adm/agora-blobs-backup` (mismo MinIO, mismo NAS).
+**Destino**: `adm/agora-blobs-backup` (mismo MinIO, mismo VPS).
 
-**Script**: `/home/nas/scripts/minio-mirror-backup.sh` (`set -euo pipefail`, log a `/home/nas/logs/minio-mirror-backup.log`, autotrunca a 1 MB cuando supera 5 MB).
+**Script**: `/root/scripts/minio-mirror-backup.sh` (`set -euo pipefail`, log a `/root/logs/minio-mirror-backup.log`, autotrunca a 1 MB cuando supera 5 MB).
 
 **Comando central**:
 ```bash
-docker exec agora-minio mc mirror --overwrite --remove --quiet \
+docker compose -f /opt/agora-stack/docker-compose.yml exec agora-minio mc mirror --overwrite --remove --quiet \
   adm/agora-blobs adm/agora-blobs-backup
 ```
 
@@ -117,13 +117,13 @@ docker exec agora-minio mc mirror --overwrite --remove --quiet \
 
 ```bash
 # Última corrida
-ssh nass-stev 'tail -20 /home/nas/logs/minio-mirror-backup.log'
+ssh root@76.13.118.239 'tail -20 /root/logs/minio-mirror-backup.log'
 
 # Comparación de tamaño origen vs mirror
-ssh nass-stev 'docker exec agora-minio mc du adm/agora-blobs && docker exec agora-minio mc du adm/agora-blobs-backup'
+ssh root@76.13.118.239 'docker compose -f /opt/agora-stack/docker-compose.yml exec agora-minio mc du adm/agora-blobs && docker compose -f /opt/agora-stack/docker-compose.yml exec agora-minio mc du adm/agora-blobs-backup'
 
 # Cron registrado
-ssh nass-stev 'crontab -l | grep minio'
+ssh root@76.13.118.239 'crontab -l | grep minio'
 ```
 
 ### Restore MinIO
@@ -132,10 +132,10 @@ ssh nass-stev 'crontab -l | grep minio'
 
 ```bash
 # Identificar el prefijo del workspace (usualmente workspaces/<wsId>/...)
-ssh nass-stev 'docker exec agora-minio mc ls --recursive adm/agora-blobs-backup/workspaces/<wsId>/ | head'
+ssh root@76.13.118.239 'docker compose -f /opt/agora-stack/docker-compose.yml exec agora-minio mc ls --recursive adm/agora-blobs-backup/workspaces/<wsId>/ | head'
 
 # Copiar de mirror -> source (overwrite explícito)
-ssh nass-stev 'docker exec agora-minio mc cp --recursive --overwrite \
+ssh root@76.13.118.239 'docker compose -f /opt/agora-stack/docker-compose.yml exec agora-minio mc cp --recursive --overwrite \
   adm/agora-blobs-backup/workspaces/<wsId>/ adm/agora-blobs/workspaces/<wsId>/'
 ```
 
@@ -144,17 +144,17 @@ ssh nass-stev 'docker exec agora-minio mc cp --recursive --overwrite \
 ```bash
 # Sincronizar mirror -> source (cuidado: --remove borra del source lo que no esté en mirror)
 # Hacerlo SIN --remove primero para evitar pérdida adicional:
-ssh nass-stev 'docker exec agora-minio mc mirror --overwrite adm/agora-blobs-backup adm/agora-blobs'
+ssh root@76.13.118.239 'docker compose -f /opt/agora-stack/docker-compose.yml exec agora-minio mc mirror --overwrite adm/agora-blobs-backup adm/agora-blobs'
 
 # Luego, si se quiere alinear 100% (sólo si el incidente lo justifica):
-ssh nass-stev 'docker exec agora-minio mc mirror --overwrite --remove adm/agora-blobs-backup adm/agora-blobs'
+ssh root@76.13.118.239 'docker compose -f /opt/agora-stack/docker-compose.yml exec agora-minio mc mirror --overwrite --remove adm/agora-blobs-backup adm/agora-blobs'
 ```
 
-### Limitaciones del mirror intra-NAS
+### Limitaciones del mirror intra-VPS
 
-- **No es offsite**: si el NAS arde / lo borran, ambos buckets se van. Para offsite real, programar un `rclone sync` semanal a GCS u otro NAS — fuera de alcance de este lote.
+- **No es offsite**: si el VPS falla / lo borran, ambos buckets se van. Para offsite real, programar un `rclone sync` semanal a GCS u otro destino — fuera de alcance de este lote.
 - **No protege contra ransomware del propio MinIO** si el atacante tiene credenciales válidas (el `--remove` propaga el daño en el próximo ciclo).
-- Mitigaciones futuras: object lock + versioning en MinIO; snapshot ZFS del dataset que contiene `/data/agora-blobs-backup` (el NAS ya tiene cron `zfs-snapshot`).
+- Mitigaciones futuras: object lock + versioning en MinIO; snapshot del dataset que contiene `/data/agora-blobs-backup`.
 
 ---
 
@@ -163,7 +163,7 @@ ssh nass-stev 'docker exec agora-minio mc mirror --overwrite --remove adm/agora-
 | Componente | Frecuencia | Retención | Ubicación | Tamaño hoy |
 |---|---|---|---|---|
 | Firestore export | Diario 03:00 UTC | 30 días (lifecycle GCS) | `gs://agora-firestore-backups-udea-filosofia/` | 13 MB / corrida |
-| MinIO mirror | Diario 02:00 UTC | Continuo (1:1 con source) | `adm/agora-blobs-backup` (mismo NAS) | 976 MiB |
+| MinIO mirror | Diario 02:00 UTC | Continuo (1:1 con source) | `adm/agora-blobs-backup` (agora-storage, 76.13.118.239) | 976 MiB |
 
 ---
 

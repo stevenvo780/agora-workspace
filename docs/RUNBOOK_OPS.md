@@ -15,7 +15,7 @@ Cada bloque trae:
 
 1. [Rollback Cloud Run (AgoraBack)](#1-rollback-cloud-run-agoraback)
 2. [Restart hub edu-hub](#2-restart-hub-edu-hub)
-3. [Restart workers humanizar2](#3-restart-workers-humanizar2)
+3. [Restart workers ils-server](#3-restart-workers-ils-server)
 4. [Regenerar Service Account Firebase](#4-regenerar-service-account-firebase)
 5. [Recovery MinIO corrupto](#5-recovery-minio-corrupto)
 6. [Recovery Firestore desde backup](#6-recovery-firestore-desde-backup)
@@ -90,23 +90,23 @@ gcloud run services describe agora-backend \
 **Cuándo**: clientes browser no reciben terminal output, comandos del agente
 quedan colgados, `/health` no responde en `127.0.0.1:3010`.
 
-El hub corre en `humanizar2` (NetBird `100.98.5.11`) como `systemd --user`
-unit del usuario `humanizar`.
+El hub corre en el VPS Hostinger **agora-storage** (`root@76.13.118.239`)
+como unit systemd `edu-hub` (no-root, user `edu-hub`), con Caddy por delante.
 
 ### Acción
 
 ```bash
-ssh nas ssh humanizar2 'systemctl --user restart edu-hub'
+ssh root@76.13.118.239 'systemctl restart edu-hub'
 ```
 
 ### Verificación
 
 ```bash
 # El servicio quedó active
-ssh nas ssh humanizar2 'systemctl --user status edu-hub | head -20'
+ssh root@76.13.118.239 'systemctl status edu-hub | head -20'
 
 # El health local responde
-ssh nas ssh humanizar2 'curl -s http://127.0.0.1:3010/health'
+ssh root@76.13.118.239 'curl -s http://127.0.0.1:3010/health'
 
 # El hub público responde (proxy desde Vercel)
 curl -s https://agora.elenxos.com/api/diag | python3 -m json.tool
@@ -118,34 +118,34 @@ curl -s https://agora.elenxos.com/api/diag | python3 -m json.tool
 
 ---
 
-## 3. Restart workers humanizar2
+## 3. Restart workers ils-server
 
 **Cuándo**: workers no responden a comandos, terminales colgadas, daemon
-docker crasheó (bug HTTP/2 conocido).
+docker crasheó.
 
 ### Restart de un worker específico
 
 ```bash
-ssh nas ssh humanizar2 'docker restart edu-worker-<wsId>'
+ssh ils-server 'docker restart edu-worker-<wsId>'
 ```
 
 ### Restart de TODOS los workers (destructivo, requiere sudo)
 
 ```bash
-ssh nas ssh humanizar2 'echo "$SUDO_PASS" | sudo -S edu-worker-manager restart all'
+ssh ils-server 'echo "$SUDO_PASS" | sudo -S edu-worker-manager update all'
 ```
 
 Si `edu-worker-manager` no existe o falla, fallback manual:
 
 ```bash
-ssh nas ssh humanizar2 \
+ssh ils-server \
   'docker ps --filter name=edu-worker --format "{{.Names}}" | xargs -r docker restart'
 ```
 
 ### Verificación
 
 ```bash
-ssh nas ssh humanizar2 'docker ps --filter name=edu-worker --format "table {{.Names}}\t{{.Status}}"'
+ssh ils-server 'docker ps --filter name=edu-worker --format "table {{.Names}}\t{{.Status}}"'
 ```
 
 Todos los workers deben aparecer en estado `Up ...`. Si alguno aparece
@@ -186,11 +186,13 @@ cat /tmp/firebase-sa.json | jq -c | tr -d '\n' | vercel env add FIREBASE_SERVICE
 ### Paso 4 — actualizar VMs (hub + daemon)
 
 ```bash
-# Copiar al host
-scp /tmp/firebase-sa.json nas:/tmp/
-ssh nas scp /tmp/firebase-sa.json humanizar2:/tmp/
+# Copiar al host del hub (agora-storage)
+scp /tmp/firebase-sa.json root@76.13.118.239:/tmp/
 # Sustituir en /etc/edu-hub/hub.env y reiniciar
-ssh nas ssh humanizar2 'sudo cp /tmp/firebase-sa.json /etc/agora/firebase-sa.json && systemctl --user restart edu-hub && systemctl restart agora-host-sync'
+ssh root@76.13.118.239 'sudo cp /tmp/firebase-sa.json /etc/agora/firebase-sa.json && systemctl restart edu-hub'
+# Copiar al host de workers (ils-server) y reiniciar daemon de sync
+scp /tmp/firebase-sa.json ils-server:/tmp/
+ssh ils-server 'sudo cp /tmp/firebase-sa.json /etc/agora/firebase-sa.json && sudo systemctl restart agora-host-sync'
 ```
 
 ### Paso 5 — redeploys
@@ -227,8 +229,8 @@ existe el bucket mirror `agora-blobs-backup` (depende del PR #119 deployado).
 ### Paso 1 — confirmar estado del bucket
 
 ```bash
-ssh nas 'docker exec agora-minio mc ls --recursive adm/agora-blobs/ | wc -l'
-ssh nas 'docker exec agora-minio mc ls --recursive adm/agora-blobs-backup/ | wc -l'
+ssh root@76.13.118.239 'docker compose -f /opt/agora-stack/docker-compose.yml exec agora-minio mc ls --recursive adm/agora-blobs/ | wc -l'
+ssh root@76.13.118.239 'docker compose -f /opt/agora-stack/docker-compose.yml exec agora-minio mc ls --recursive adm/agora-blobs-backup/ | wc -l'
 ```
 
 Si el backup tiene MÁS objetos que el primario, hay pérdida real.
@@ -237,7 +239,7 @@ Si el backup tiene MÁS objetos que el primario, hay pérdida real.
 
 ```bash
 # Restaurar carpeta workspaces/<wsId>/
-ssh nas 'docker exec agora-minio mc mirror --overwrite \
+ssh root@76.13.118.239 'docker compose -f /opt/agora-stack/docker-compose.yml exec agora-minio mc mirror --overwrite \
   adm/agora-blobs-backup/workspaces/<wsId>/ \
   adm/agora-blobs/workspaces/<wsId>/'
 ```
@@ -246,7 +248,7 @@ ssh nas 'docker exec agora-minio mc mirror --overwrite \
 
 ```bash
 # Mirror completo del backup → primario
-ssh nas 'docker exec agora-minio mc mirror --overwrite \
+ssh root@76.13.118.239 'docker compose -f /opt/agora-stack/docker-compose.yml exec agora-minio mc mirror --overwrite \
   adm/agora-blobs-backup/ adm/agora-blobs/'
 ```
 
@@ -257,7 +259,7 @@ ssh nas 'docker exec agora-minio mc mirror --overwrite \
 ### Verificación
 
 ```bash
-ssh nas 'docker exec agora-minio mc stat adm/agora-blobs/workspaces/<wsId>/<doc>'
+ssh root@76.13.118.239 'docker compose -f /opt/agora-stack/docker-compose.yml exec agora-minio mc stat adm/agora-blobs/workspaces/<wsId>/<doc>'
 ```
 
 ---
@@ -356,22 +358,22 @@ vercel deploy --prod --yes
 **Cuándo**: chequeo de salud rápido o tras un incidente.
 
 ```bash
-# Contador de workers registrados (últimos 5 min)
-ssh nas ssh humanizar2 \
-  'journalctl --user -u edu-hub --since "5 minutes ago" | grep "Worker registered" | wc -l'
+# Contador de workers registrados (últimos 5 min) — logs del hub en agora-storage
+ssh root@76.13.118.239 \
+  'journalctl -u edu-hub --since "5 minutes ago" | grep "Worker registered" | wc -l'
 
 # Lista detallada
-ssh nas ssh humanizar2 \
-  'journalctl --user -u edu-hub --since "5 minutes ago" | grep "Worker registered"'
+ssh root@76.13.118.239 \
+  'journalctl -u edu-hub --since "5 minutes ago" | grep "Worker registered"'
 
-# Conteo de containers vivos en el host
-ssh nas ssh humanizar2 \
+# Conteo de containers vivos en ils-server
+ssh ils-server \
   'docker ps --filter name=edu-worker --format "{{.Names}}" | wc -l'
 ```
 
 El conteo de containers y el conteo de "Worker registered" en los últimos
 5 minutos deben coincidir (±1, hay reconexiones normales). En operación
-estable: 27 workers conectados.
+estable: ~43 workers conectados.
 
 ---
 
@@ -478,8 +480,8 @@ gcloud run services update agora-backend \
   --region=us-central1 \
   --update-env-vars=WORKER_SECRET_PREVIOUS=<viejo>
 
-# AgoraHub (humanizar2 → /etc/edu-hub/hub.env)
-ssh nas ssh humanizar2 'sudo sed -i "s/^WORKER_SECRET_PREVIOUS=.*/WORKER_SECRET_PREVIOUS=<viejo>/" /etc/edu-hub/hub.env && systemctl --user restart edu-hub'
+# AgoraHub (agora-storage → /etc/edu-hub/hub.env)
+ssh root@76.13.118.239 'sudo sed -i "s/^WORKER_SECRET_PREVIOUS=.*/WORKER_SECRET_PREVIOUS=<viejo>/" /etc/edu-hub/hub.env && systemctl restart edu-hub'
 
 # Vercel (AgoraFront)
 printf '<viejo>' | vercel env add WORKER_SECRET_PREVIOUS production
@@ -495,7 +497,7 @@ printf '<viejo>' | vercel env add WORKER_SECRET_PREVIOUS production
 Para workers (re-crear con el secret nuevo):
 
 ```bash
-ssh nas ssh humanizar2 'echo $SUDO_PASS | sudo -S edu-worker-manager update all'
+ssh ils-server 'echo $SUDO_PASS | sudo -S edu-worker-manager update all'
 ```
 
 ### Paso 4 — verificación (24-48h de operación normal)
@@ -522,24 +524,24 @@ vercel env rm WORKER_SECRET_PREVIOUS production
 ### Paso 1 — estado del daemon
 
 ```bash
-ssh nas ssh humanizar2 'systemctl status agora-host-sync'
-ssh nas ssh humanizar2 'tail -100 /home/humanizar/logs/agora-host-sync.log'
+ssh ils-server 'sudo systemctl status agora-host-sync'
+ssh ils-server 'sudo tail -100 /home/humanizar/logs/agora-host-sync.log'
 ```
 
 ### Paso 2 — restart
 
 ```bash
-ssh nas ssh humanizar2 'sudo systemctl restart agora-host-sync'
+ssh ils-server 'sudo systemctl restart agora-host-sync'
 ```
 
 ### Paso 3 — verificación
 
 ```bash
 # Debe estar active (running)
-ssh nas ssh humanizar2 'systemctl status agora-host-sync | head -5'
+ssh ils-server 'sudo systemctl status agora-host-sync | head -5'
 
 # Los logs deben mostrar ciclos cada 5s sin errores
-ssh nas ssh humanizar2 'tail -f /home/humanizar/logs/agora-host-sync.log'
+ssh ils-server 'sudo tail -f /home/humanizar/logs/agora-host-sync.log'
 ```
 
 Tras 1-2 ciclos, hacer un cambio chico en un workspace y confirmar que
@@ -581,31 +583,29 @@ Verificar:
 gcloud secrets versions list firebase-service-account --project=udea-filosofia --limit=3
 ```
 
-### Paso 3 — sincronizar al hub (VM `agora-hub`)
+### Paso 3 — sincronizar al hub (agora-storage, 76.13.118.239)
 
-El hub corre en `humanizar2` y lee la SA desde `/opt/edu-hub/.env` (o
+El hub corre en el VPS Hostinger `agora-storage` y lee la SA desde `/opt/edu-hub/.env` (o
 `/etc/edu-hub/hub.env` según install). El Secret Manager NO se propaga
 solo: hay que escribir el archivo.
 
 ```bash
 # Copiar al host
-scp /tmp/firebase-sa-new.json nas:/tmp/
-ssh nas scp /tmp/firebase-sa-new.json humanizar2:/tmp/
+scp /tmp/firebase-sa-new.json root@76.13.118.239:/tmp/
 
 # Reemplazar en .env del hub (cuidado: una sola línea, sin newline)
 SA_JSON=$(jq -c . /tmp/firebase-sa-new.json | tr -d '\n')
-ssh nas ssh humanizar2 "sudo sed -i \"s|^FIREBASE_SERVICE_ACCOUNT=.*|FIREBASE_SERVICE_ACCOUNT='${SA_JSON//\'/\\\'}'|\" /opt/edu-hub/.env"
+ssh root@76.13.118.239 "sudo sed -i \"s|^FIREBASE_SERVICE_ACCOUNT=.*|FIREBASE_SERVICE_ACCOUNT='${SA_JSON//\'/\\\'}'|\" /opt/edu-hub/.env"
 
 # Restart del hub para que cargue
-ssh nas ssh humanizar2 'systemctl --user restart edu-hub'
+ssh root@76.13.118.239 'systemctl restart edu-hub'
 ```
 
 ### Paso 4 — limpiar SA local
 
 ```bash
 rm -f /tmp/firebase-sa-new.json
-ssh nas 'rm -f /tmp/firebase-sa-new.json'
-ssh nas ssh humanizar2 'rm -f /tmp/firebase-sa-new.json'
+ssh root@76.13.118.239 'rm -f /tmp/firebase-sa-new.json'
 ```
 
 ### Paso 5 — revocar key vieja
@@ -624,11 +624,11 @@ gcloud iam service-accounts keys delete <KEY_ID_VIEJA> \
 
 ```bash
 # Hub responde y firma tokens con la SA nueva
-ssh nas ssh humanizar2 'systemctl --user status edu-hub | head -10'
+ssh root@76.13.118.239 'systemctl status edu-hub | head -10'
 curl -s https://agora.elenxos.com/api/diag | python3 -m json.tool | grep firebase
 ```
 
-Si el hub queda en `failed` revisar `journalctl --user -u edu-hub --since "5 min ago"` —
+Si el hub queda en `failed` revisar `journalctl -u edu-hub --since "5 min ago"` —
 suele ser un escape mal hecho del JSON al sustituir en `.env`.
 
 ---
@@ -846,22 +846,18 @@ la policy.
 
 ## 19. Cerrar / reabrir puerto raw 3010 del hub
 
-**Cuándo**: hoy el puerto **3010** está cerrado en GCP firewall — todo
-tráfico al hub pasa por TLS via `agora.elenxos.com` (Caddy en la VM).
-Reabrirlo solo si hay un cliente legacy que aún apunta raw.
+**Cuándo**: hoy el puerto **3010** está cerrado en el firewall del VPS Hostinger
+(`agora-storage`, 76.13.118.239) — todo tráfico al hub pasa por TLS via
+`agora.elenxos.com` (Caddy). Reabrirlo solo si hay un cliente legacy que aún
+apunta raw.
 
-### Reabrir (emergencia)
+El hub ya no corre en GCP; el firewall relevante es el del proveedor Hostinger
+(panel web) o `ufw` dentro del VPS.
+
+### Reabrir (emergencia) — via ufw en el VPS
 
 ```bash
-gcloud compute firewall-rules create allow-hub-3010 \
-  --project=udea-filosofia \
-  --network=default \
-  --direction=INGRESS \
-  --priority=1000 \
-  --action=ALLOW \
-  --rules=tcp:3010 \
-  --source-ranges=0.0.0.0/0 \
-  --target-tags=agora-hub
+ssh root@76.13.118.239 'ufw allow 3010/tcp comment "hub raw temp"'
 ```
 
 > **Riesgo**: expone socket.io sin TLS. Sólo abrir para diagnóstico
@@ -870,27 +866,24 @@ gcloud compute firewall-rules create allow-hub-3010 \
 ### Cerrar
 
 ```bash
-gcloud compute firewall-rules delete allow-hub-3010 \
-  --project=udea-filosofia --quiet
+ssh root@76.13.118.239 'ufw delete allow 3010/tcp'
 ```
 
 ### Verificación
 
 ```bash
-# Lista de reglas activas
-gcloud compute firewall-rules list \
-  --project=udea-filosofia \
-  --filter='name~allow-hub-3010'
+# Estado del firewall en el VPS
+ssh root@76.13.118.239 'ufw status | grep 3010'
 
 # Confirmar que el endpoint TLS sigue OK (no debe verse afectado)
 curl -sI https://agora.elenxos.com/api/diag
 ```
 
 Para conectarse al hub desde dev local sin abrir el puerto, hacer port-
-forward via NetBird o SSH tunnel:
+forward via SSH tunnel:
 
 ```bash
-ssh nas ssh -L 3010:127.0.0.1:3010 humanizar2 -N
+ssh -L 3010:127.0.0.1:3010 root@76.13.118.239 -N
 ```
 
 ---
@@ -938,14 +931,15 @@ funcionando".
 
 ---
 
-## 21. Reload de Caddy en la VM del hub
+## 21. Reload de Caddy en el VPS del hub
 
 **Cuándo**: cambio en el `Caddyfile` (nuevo dominio, ajuste de proxy,
 header) y necesitamos aplicarlo sin restart completo.
 
+El hub corre en el VPS Hostinger `agora-storage` (`root@76.13.118.239`), no en GCP.
+
 ```bash
-gcloud compute ssh agora-hub --zone=us-central1-a --project=udea-filosofia \
-  --command='sudo systemctl reload caddy'
+ssh root@76.13.118.239 'sudo systemctl reload caddy'
 ```
 
 > `reload` reaplica config sin tirar conexiones. Si `caddy validate` da
@@ -954,8 +948,7 @@ gcloud compute ssh agora-hub --zone=us-central1-a --project=udea-filosofia \
 ### Verificación
 
 ```bash
-gcloud compute ssh agora-hub --zone=us-central1-a --project=udea-filosofia \
-  --command='sudo systemctl status caddy | head -15'
+ssh root@76.13.118.239 'sudo systemctl status caddy | head -15'
 
 # Endpoint público responde con cert nuevo
 curl -sI https://agora.elenxos.com | head -5
@@ -964,8 +957,7 @@ curl -sI https://agora.elenxos.com | head -5
 Si Caddy queda en `failed`, restart completo:
 
 ```bash
-gcloud compute ssh agora-hub --zone=us-central1-a --project=udea-filosofia \
-  --command='sudo systemctl restart caddy && sudo journalctl -u caddy --since "1 min ago"'
+ssh root@76.13.118.239 'sudo systemctl restart caddy && sudo journalctl -u caddy --since "1 min ago"'
 ```
 
 ---
@@ -978,7 +970,6 @@ gcloud compute ssh agora-hub --zone=us-central1-a --project=udea-filosofia \
   curl/log que lo confirme.
 - **Secrets**: ver `AgoraFront/.claude/secrets.md`. Nunca pegar en este
   documento.
-- **Convenciones de SSH**: `ssh nas` (jump host NAS) → `ssh humanizar2`
-  (host activo). Las claves SSH ya están configuradas.
+- **Convenciones de SSH**: `ssh root@76.13.118.239` para hub/MinIO/Forgejo (agora-storage); `ssh ils-server` para workers/daemon (ils-server, NetBird `100.98.245.50`). Las claves SSH ya están configuradas.
 - Para diagnóstico amplio sin contexto previo, usar `/diag` (harness
   Claude) que ejecuta health check por capa.
