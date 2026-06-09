@@ -31,3 +31,9 @@ migration-backup-*/
 # Config MCP de testing local (16-chrome, paths del sandbox) — no va al repo
 .mcp.json
 .mcp.json.bak
+
+# QA secrets
+credenciales/
+
+# Códigos de regalo generados (sensibles — no commitear)
+gift-codes/
