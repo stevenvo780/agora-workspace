@@ -74,7 +74,7 @@ Usuarios: estudiantes, docentes y devs que quieren web + terminal + git juntos.
 
 - Headscale `100.64.0.11`, pública `167.114.118.213`, alias SSH `vps-tn`/`vps`.
 - AMD Ryzen 7 9700X, 16 CPU lógicas y 62 GiB RAM.
-- User `root`. 40 containers `edu-worker-<id>`.
+- User `root`. 41 containers `edu-worker-<id>`.
 - Persistencia `/datos/agora-workers/{workspaces,home}`. `agora-host-sync`
   corre como contenedor Docker, no como unidad systemd.
 - `ils-server` está retirado y apagado desde el 16-ago-2026.

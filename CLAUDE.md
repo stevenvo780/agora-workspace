@@ -71,7 +71,7 @@ vps-humanizar-2  (host de workers, Headscale 100.64.0.11, pública 167.114.118.2
   Ubuntu, AMD Ryzen 7 9700X, 16 CPU lógicas, 62 GiB RAM
   User `root`; alias SSH `vps-tn` (malla) / `vps` (pública)
   ├─ agora-host-sync — contenedor Docker healthy (no systemd)
-  └─ 40 containers edu-worker-<wsId> + edu-worker-<uid>
+  └─ 41 containers edu-worker-<wsId> + edu-worker-<uid>
 
 ils-server  (100.64.0.5 / 148.230.88.162) — RETIRADO, apagado desde 2026-08-16.
 
@@ -182,7 +182,8 @@ cerrado; solo 443 acepta tráfico externo.
 > Hoy corre en Hostinger VPS `agora-storage` junto a MinIO y Forgejo.
 > `humanizar2` murió físicamente el 2026-05-24; `ils-server` lo reemplazó
 > temporalmente y quedó apagado el 2026-08-16. El 2026-08-19 se migraron
-> 40/40 workers y host-sync a `vps-humanizar-2`.
+> 40/40 workers y host-sync a `vps-humanizar-2`; el 2026-08-25 se añadió
+> `Descartes` (`lzYPWlMdecYzW4eus4BX`), total 41.
 
 ### AgoraWorker (DockerHub + vps-humanizar-2)
 
@@ -209,7 +210,7 @@ Hosts:
   `docker compose -f /opt/agora-stack/docker-compose.yml exec agora-minio ...`
   para acción directa. Primario de producción.
 - **vps-humanizar-2** — alias `vps-tn` (`100.64.0.11`) / `vps`
-  (`167.114.118.213`), user `root`. Aloja 40 workers y `agora-host-sync` como
+  (`167.114.118.213`), user `root`. Aloja 41 workers y `agora-host-sync` como
   contenedores Docker. Persistencia en `/datos/agora-workers/{workspaces,home}`.
 - **ils-server** — RETIRADO, apagado desde 2026-08-16. No desplegar allí.
 - **humanizar2** — MUERTO FÍSICAMENTE (2026-05-24).
@@ -244,7 +245,7 @@ gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.serv
 
 ## 6. Workers — comportamiento conocido
 
-- `vps-humanizar-2` mantiene 40 workers con `restart=unless-stopped`.
+- `vps-humanizar-2` mantiene 41 workers con `restart=unless-stopped`.
 - Workers viven en `/datos/agora-workers/{workspaces,home}/`.
 - `agora-host-sync` es un contenedor Docker con límite de 8 GiB, no una unidad
   systemd. Los scripts legacy de `edu-worker-manager` están bloqueados.
@@ -360,7 +361,7 @@ Si reaparecen, comunicar al user:
 - ~~Git providers solo Forgejo interno~~ → vault AES-256-GCM +
   isomorphic-git para vincular repos externos (GitHub, GitLab, SSH).
 - ~~Migración workers a nuevo hardware~~ → completada 2026-08-19 en
-  `vps-humanizar-2`: 40 workers activos + contenedor `agora-host-sync`.
+  `vps-humanizar-2`: 41 workers activos + contenedor `agora-host-sync`.
   `ils-server` y `humanizar2` quedaron retirados.
 - ~~next-pwa@5.6.0 EOL~~ → migrado a `@ducanh2912/next-pwa@10.2.9`
   (fork mantenido) + SW auto-registra en App Router.

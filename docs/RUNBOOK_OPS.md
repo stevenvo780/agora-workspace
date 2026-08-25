@@ -370,7 +370,7 @@ ssh vps-tn \
 
 El conteo de containers y el conteo de "Worker registered" en los últimos
 5 minutos deben coincidir (±1, hay reconexiones normales). En operación
-estable: 40 workers conectados.
+estable: 41 workers conectados.
 
 ---
 
