@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly compose_file=/opt/agora-stack/docker-compose.yml
+readonly container_name=agora-minio
+
+state="$(docker inspect --format '{{.State.Status}}' "$container_name" 2>/dev/null || true)"
+if [[ "$state" == "running" ]]; then
+  for _ in {1..3}; do
+    if curl -fsS --max-time 3 http://127.0.0.1:9000/minio/health/ready >/dev/null; then
+      exit 0
+    fi
+    sleep 2
+  done
+
+  echo "[agora-minio-guard] MinIO ejecutándose pero no ready; reiniciando"
+  docker restart "$container_name" >/dev/null
+else
+  echo "[agora-minio-guard] estado=${state:-missing}; reactivando MinIO"
+  docker compose -f "$compose_file" up -d minio
+fi
+
+for _ in {1..30}; do
+  if curl -fsS --max-time 3 http://127.0.0.1:9000/minio/health/ready >/dev/null; then
+    echo "[agora-minio-guard] MinIO listo"
+    exit 0
+  fi
+  sleep 1
+done
+
+echo "[agora-minio-guard] MinIO no alcanzó estado ready" >&2
+exit 1

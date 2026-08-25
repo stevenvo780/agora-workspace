@@ -1,0 +1,12 @@
+[Unit]
+Description=Verifica periódicamente MinIO de Agora
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=15s
+Persistent=true
+Unit=agora-minio-guard.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,8 @@
+[Unit]
+Description=Garantiza que MinIO de Agora siga activo
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/agora-minio-ensure
