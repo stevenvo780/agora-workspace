@@ -135,8 +135,11 @@ modal "Novedades v1.0" con `click "Entendido, no mostrar más"`.
 ## 5. Acceso SSH a producción (referencia)
 
 Para QA/diagnóstico contra prod, no contra el lab:
-- **ils-server** (workers): `ils-server@100.98.245.50` (NetBird). Password y gotcha
-  `MaxStartups` (conexiones de a una, nunca ráfagas) en `secrets.md`.
+
+- **vps-humanizar-2** (workers): alias `vps-tn` por Headscale
+  (`100.64.0.11`) o `vps` por la IP pública (`167.114.118.213`), user `root`.
+  `agora-host-sync` y los 40 workers corren como contenedores Docker.
+- **ils-server**: retirado y apagado; no usar para QA ni deploy.
 - **agora-storage** (MinIO/Forgejo/Hub/Postgres): `root@76.13.118.239`.
 - Pasos para autorizar la key y `sudo NOPASSWD`: `docs/ACCESOS-QA-ejecutar.md`.
 - Prod read-only (Firestore/Auth) con token gcloud: ver el header

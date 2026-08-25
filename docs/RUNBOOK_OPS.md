@@ -15,7 +15,7 @@ Cada bloque trae:
 
 1. [Rollback Cloud Run (AgoraBack)](#1-rollback-cloud-run-agoraback)
 2. [Restart hub edu-hub](#2-restart-hub-edu-hub)
-3. [Restart workers ils-server](#3-restart-workers-ils-server)
+3. [Restart workers en vps-humanizar-2](#3-restart-workers-en-vps-humanizar-2)
 4. [Regenerar Service Account Firebase](#4-regenerar-service-account-firebase)
 5. [Recovery MinIO corrupto](#5-recovery-minio-corrupto)
 6. [Recovery Firestore desde backup](#6-recovery-firestore-desde-backup)
@@ -118,7 +118,7 @@ curl -s https://agora.elenxos.com/api/diag | python3 -m json.tool
 
 ---
 
-## 3. Restart workers ils-server
+## 3. Restart workers en vps-humanizar-2
 
 **Cuándo**: workers no responden a comandos, terminales colgadas, daemon
 docker crasheó.
@@ -126,26 +126,22 @@ docker crasheó.
 ### Restart de un worker específico
 
 ```bash
-ssh ils-server 'docker restart edu-worker-<wsId>'
+ssh vps-tn 'docker restart edu-worker-<wsId>'
 ```
 
-### Restart de TODOS los workers (destructivo, requiere sudo)
+### Restart de TODOS los workers (destructivo)
 
 ```bash
-ssh ils-server 'echo "$SUDO_PASS" | sudo -S edu-worker-manager update all'
+ssh vps-tn 'docker ps --filter name=edu-worker --format "{{.Names}}" | xargs -r docker restart'
 ```
 
-Si `edu-worker-manager` no existe o falla, fallback manual:
-
-```bash
-ssh ils-server \
-  'docker ps --filter name=edu-worker --format "{{.Names}}" | xargs -r docker restart'
-```
+Producción no usa `edu-worker-manager`. Antes de un restart masivo, capturar
+logs y confirmar el alcance: interrumpe todas las terminales en curso.
 
 ### Verificación
 
 ```bash
-ssh ils-server 'docker ps --filter name=edu-worker --format "table {{.Names}}\t{{.Status}}"'
+ssh vps-tn 'docker ps --filter name=edu-worker --format "table {{.Names}}\t{{.Status}}"'
 ```
 
 Todos los workers deben aparecer en estado `Up ...`. Si alguno aparece
@@ -183,17 +179,18 @@ vercel env rm FIREBASE_SERVICE_ACCOUNT production
 cat /tmp/firebase-sa.json | jq -c | tr -d '\n' | vercel env add FIREBASE_SERVICE_ACCOUNT production
 ```
 
-### Paso 4 — actualizar VMs (hub + daemon)
+### Paso 4 — actualizar el hub
 
 ```bash
 # Copiar al host del hub (agora-storage)
 scp /tmp/firebase-sa.json root@76.13.118.239:/tmp/
 # Sustituir en /etc/edu-hub/hub.env y reiniciar
 ssh root@76.13.118.239 'sudo cp /tmp/firebase-sa.json /etc/agora/firebase-sa.json && systemctl restart edu-hub'
-# Copiar al host de workers (ils-server) y reiniciar daemon de sync
-scp /tmp/firebase-sa.json ils-server:/tmp/
-ssh ils-server 'sudo cp /tmp/firebase-sa.json /etc/agora/firebase-sa.json && sudo systemctl restart agora-host-sync'
 ```
+
+`agora-host-sync` no consume Firebase directamente: sincroniza contra
+AgoraBack con `WORKER_SYNC_SECRET`. No copiar la Service Account al host de
+workers ni reiniciar ese contenedor durante esta rotación.
 
 ### Paso 5 — redeploys
 
@@ -366,14 +363,14 @@ ssh root@76.13.118.239 \
 ssh root@76.13.118.239 \
   'journalctl -u edu-hub --since "5 minutes ago" | grep "Worker registered"'
 
-# Conteo de containers vivos en ils-server
-ssh ils-server \
+# Conteo de containers vivos en vps-humanizar-2
+ssh vps-tn \
   'docker ps --filter name=edu-worker --format "{{.Names}}" | wc -l'
 ```
 
 El conteo de containers y el conteo de "Worker registered" en los últimos
 5 minutos deben coincidir (±1, hay reconexiones normales). En operación
-estable: ~43 workers conectados.
+estable: 40 workers conectados.
 
 ---
 
@@ -494,11 +491,10 @@ printf '<viejo>' | vercel env add WORKER_SECRET_PREVIOUS production
 # AgoraBack, AgoraHub, AgoraFront, daemon agora-host-sync, cada worker container
 ```
 
-Para workers (re-crear con el secret nuevo):
-
-```bash
-ssh ils-server 'echo $SUDO_PASS | sudo -S edu-worker-manager update all'
-```
+Para workers, recrear los contenedores en `vps-humanizar-2` conservando
+mounts, labels, límites y restart policy, e inyectar el secreto desde el
+runtime del host. Producción ya no usa `edu-worker-manager`; ver
+`AgoraWorker/docs/RUNTIME-PROD-2026-08-25.md`.
 
 ### Paso 4 — verificación (24-48h de operación normal)
 
@@ -524,24 +520,24 @@ vercel env rm WORKER_SECRET_PREVIOUS production
 ### Paso 1 — estado del daemon
 
 ```bash
-ssh ils-server 'sudo systemctl status agora-host-sync'
-ssh ils-server 'sudo tail -100 /home/humanizar/logs/agora-host-sync.log'
+ssh vps-tn 'docker inspect agora-host-sync --format "{{.State.Status}}/{{.State.Health.Status}} reinicios={{.RestartCount}}"'
+ssh vps-tn 'docker logs --tail 100 agora-host-sync'
 ```
 
 ### Paso 2 — restart
 
 ```bash
-ssh ils-server 'sudo systemctl restart agora-host-sync'
+ssh vps-tn 'docker restart agora-host-sync'
 ```
 
 ### Paso 3 — verificación
 
 ```bash
-# Debe estar active (running)
-ssh ils-server 'sudo systemctl status agora-host-sync | head -5'
+# Debe estar running/healthy
+ssh vps-tn 'docker inspect agora-host-sync --format "{{.State.Status}}/{{.State.Health.Status}}"'
 
 # Los logs deben mostrar ciclos cada 5s sin errores
-ssh ils-server 'sudo tail -f /home/humanizar/logs/agora-host-sync.log'
+ssh vps-tn 'docker logs -f agora-host-sync'
 ```
 
 Tras 1-2 ciclos, hacer un cambio chico en un workspace y confirmar que
@@ -970,6 +966,8 @@ ssh root@76.13.118.239 'sudo systemctl restart caddy && sudo journalctl -u caddy
   curl/log que lo confirme.
 - **Secrets**: ver `AgoraFront/.claude/secrets.md`. Nunca pegar en este
   documento.
-- **Convenciones de SSH**: `ssh root@76.13.118.239` para hub/MinIO/Forgejo (agora-storage); `ssh ils-server` para workers/daemon (ils-server, NetBird `100.98.245.50`). Las claves SSH ya están configuradas.
+- **Convenciones de SSH**: `ssh root@76.13.118.239` para
+  hub/MinIO/Forgejo; `ssh vps-tn` para workers/host-sync en
+  `vps-humanizar-2`. `ils-server` está retirado y no debe recibir deploys.
 - Para diagnóstico amplio sin contexto previo, usar `/diag` (harness
   Claude) que ejecuta health check por capa.

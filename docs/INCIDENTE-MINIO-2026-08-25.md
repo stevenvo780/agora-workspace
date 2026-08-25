@@ -44,10 +44,11 @@ seguían atendiendo.
 - Sincronización: 705 polls HTTP 200 de 40 workspaces distintos en diez minutos.
 - Repos locales: remotos refrescados; ninguna rama con upstream estaba atrasada.
   Se preservaron sin tocar los cambios locales preexistentes.
-- El acceso SSH documentado para `ils-server` está obsoleto o no es accesible
-  desde este contenedor. La actividad de los 40 workspaces verifica el plano de
-  sync de forma indirecta, pero falta corregir el inventario del host de workers
-  para recuperar observabilidad directa.
+- El inventario anterior apuntaba a `ils-server`, retirado desde el 16-ago.
+  El runtime vigente está en `vps-humanizar-2`: 40/40 workers `Up` y
+  `agora-host-sync` Docker `healthy`, verificados directamente por coordinación.
+- Un workspace conserva una cola atascada (`fail:1`, `queueDepth:274`); quedó
+  registrado en `stevenvo780/agora-worker#1` para diagnóstico sin pérdida.
 
 ## Prevención instalada
 
@@ -65,9 +66,10 @@ Archivos versionados:
 
 ## Hallazgos fuera del alcance de Agora
 
-El VPS compartido conserva contenedores Cauce detenidos y una unidad fallida de
-leadgen. No se tocaron: no pertenecen al runtime de Agora y deben coordinarse
-con el owner correspondiente. Tampoco se modificaron secretos ni datos.
+Los contenedores Cauce detenidos observados eran jobs de una pasada terminados
+con `Exited (0)`, no caídas. En el host de workers, coordinación corrigió además
+el backup `vps-humanizar-backup`, que sí llevaba días fallando. Tampoco se
+modificaron secretos ni datos de Agora.
 
 ## Reversión
 

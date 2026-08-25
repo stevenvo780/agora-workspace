@@ -70,12 +70,14 @@ Usuarios: estudiantes, docentes y devs que quieren web + terminal + git juntos.
   user `edu-hub` no-root, systemd `edu-hub.service`)
 - Docker Compose en `/opt/agora-stack/docker-compose.yml`. Sólo 443 externo.
 
-**ils-server — Hostinger VPS `srv936994.hstgr.cloud`** (host de workers)
-- NetBird `100.98.245.50`, NAT `148.230.88.162`, alias SSH `ils-server`.
-- Ubuntu 24.04.4, Docker CE 29.5.2 (sin bug HTTP/2 de humanizar2), 4 cores/7.8 GB.
-- User `humanizar` (UID 1001, grupo docker). ~43 containers `edu-worker-<id>`.
-- Config workers `/etc/edu-worker/worker.env`. Daemon `agora-host-sync.service`
-  en `/opt/agora-host-sync/`, logs `/home/humanizar/logs/agora-host-sync.log`.
+**vps-humanizar-2** (host de workers)
+
+- Headscale `100.64.0.11`, pública `167.114.118.213`, alias SSH `vps-tn`/`vps`.
+- AMD Ryzen 7 9700X, 16 CPU lógicas y 62 GiB RAM.
+- User `root`. 40 containers `edu-worker-<id>`.
+- Persistencia `/datos/agora-workers/{workspaces,home}`. `agora-host-sync`
+  corre como contenedor Docker, no como unidad systemd.
+- `ils-server` está retirado y apagado desde el 16-ago-2026.
 
 **Firebase / GCP** (`udea-filosofia`)
 - Auth + Firestore + RTDB. Backups Firestore en
@@ -142,22 +144,23 @@ humanizar2 (muerto físicamente 2026-05-24).
   ./deploy_hub.sh` (scp dist → agora-storage, `systemctl restart edu-hub`).
   **Orden: hub primero, luego workers.**
 
-### AgoraWorker (Docker / DockerHub + ils-server)
+### AgoraWorker (Docker / DockerHub + vps-humanizar-2)
 - Tres partes:
   1. `worker/` — imagen `stevenvo780/edu-worker:latest` (Node + PTY). Whitelist
      ~40 binarios. cwd `/workspace`. Policy tri-tier: destructivos
      (`rm`/`mv`/`truncate`) → confirm siempre; safe-reads (`ls`/`cat`/`pwd`) →
      directo; resto → confirm.
-  2. `worker-host-sync/` — daemon `agora-host-sync.service` en ils-server.
-     Sincroniza `/home/humanizar/edu-worker/workspaces/<wsId>/` ↔ MinIO +
+  2. `worker-host-sync/` — contenedor `agora-host-sync` en vps-humanizar-2.
+     Sincroniza `/datos/agora-workers/workspaces/<wsId>/` ↔ MinIO +
      AgoraBack cada 5s, revive containers exited. Ignora `.scratch/`,
      `.agent-tmp/`, `tmp-*`, `*.tmp`. Métricas Prometheus `127.0.0.1:9090`.
      Fix 2026-05-25: lee `WORKER_TOKEN` real vía `docker inspect` para
      workspaces personales (`personal:<uid>`) en vez del wsId crudo.
   3. `desplieges-prod/` — scripts `deploy_hub.sh`, `deploy_docker.sh`,
      `update_st_workers.sh`, `deploy_sync_daemon.sh`.
-- Deploy imagen: `docker build -t stevenvo780/edu-worker:latest . && docker
-  push && ssh ils-server 'sudo edu-worker-manager update all'`.
+- Deploy imagen: construir/publicar y recrear en `vps-humanizar-2` preservando
+  env, mounts, labels, límites y restart policy. Los scripts legacy del
+  `ils-server` abortan por defecto.
 
 ### AgoraCli (`@stevenvo780/agora-cli`, publicado npm)
 - `agora login | workspaces | clone <wsId> | pull | push -m | watch | status |
@@ -226,8 +229,8 @@ gcloud run services update-traffic agora-backend --to-revisions=<rev>=100 --regi
 ```
 **Restart hub** (§2): `ssh root@76.13.118.239 'systemctl restart edu-hub'` →
 `curl -s https://hub.elenxos.com/health`.
-**Restart workers** (§3): `ssh ils-server 'sudo edu-worker-manager restart all'`.
-**Restart daemon sync** (§12): `ssh ils-server 'sudo systemctl restart agora-host-sync'`.
+**Restart workers** (§3): `ssh vps-tn 'docker restart edu-worker-<id>'`.
+**Restart host-sync** (§12): `ssh vps-tn 'docker restart agora-host-sync'`.
 
 **Backups**:
 - Firestore: Scheduler diario 03:00 UTC → `gs://agora-firestore-backups-udea-filosofia/`.
@@ -240,7 +243,7 @@ gcloud run services update-traffic agora-backend --to-revisions=<rev>=100 --regi
 
 **Rotación `WORKER_SECRET` sin downtime** (§11): generar nuevo → distribuir
 viejo como `WORKER_SECRET_PREVIOUS` en Back/Hub/Vercel → sustituir nuevo en
-todos → `edu-worker-manager update all` → limpiar `PREVIOUS` tras 24-48h.
+todos → recrear contenedores preservando config → limpiar `PREVIOUS` tras 24-48h.
 **Rotación SA Firebase** (§13): `gcloud iam service-accounts keys create` →
 `gcloud secrets versions add firebase-service-account` → copiar a agora-storage
 → restart edu-hub → redeploy Back y Front → revocar key vieja.
@@ -330,5 +333,5 @@ CORS "Origen null" → bajar a debug, `MERCADOPAGO_WEBHOOK_SECRET` en prod.
 - **Rutas bare** deben responder `Deprecation/Sunset/Link` hasta 2026-08-01.
 - **`AGENT.md`** del repo es versión vieja del `CLAUDE.md`; la verdad viva es
   `CLAUDE.md` (raíz + `AgoraFront/.claude/`).
-- Referencias a `humanizar2` en RUNBOOK_OPS están desactualizadas → host activo
-  de workers es `ils-server` (`100.98.245.50`).
+- Host activo de workers: `vps-humanizar-2` (`100.64.0.11` /
+  `167.114.118.213`). `ils-server` y `humanizar2` están retirados.

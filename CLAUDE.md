@@ -67,11 +67,13 @@ agora-storage  (Hostinger VPS, IP 76.13.118.239, Ubuntu 24.04, 2 CPU AMD EPYC, 8
      ├─ agora-forgejo (Forgejo v11, 13 repos org "agora")
      └─ agora-postgres (Postgres 17, DB forgejo)
 
-ils-server  (Hostinger VPS srv936994.hstgr.cloud, NetBird 100.98.245.50, IP NAT 148.230.88.162)
-  Ubuntu 24.04.4 LTS, Docker CE 29.5.2, 4 cores / 7.8 GB RAM / 57 GB disk
-  User no-root `humanizar` (UID 1001) para containers + grupo docker
-  ├─ agora-host-sync.service — daemon de sync (systemd active)
-  └─ ~43 containers edu-worker-<wsId> + edu-worker-<uid> (workspaces compartidos + personales)
+vps-humanizar-2  (host de workers, Headscale 100.64.0.11, pública 167.114.118.213)
+  Ubuntu, AMD Ryzen 7 9700X, 16 CPU lógicas, 62 GiB RAM
+  User `root`; alias SSH `vps-tn` (malla) / `vps` (pública)
+  ├─ agora-host-sync — contenedor Docker healthy (no systemd)
+  └─ 40 containers edu-worker-<wsId> + edu-worker-<uid>
+
+ils-server  (100.64.0.5 / 148.230.88.162) — RETIRADO, apagado desde 2026-08-16.
 
 Firebase Auth + Firestore + RTDB (proyecto udea-filosofia)
   Service Account rotada (Secret Manager v3 activa, v1/v2 disabled)
@@ -178,22 +180,23 @@ cerrado; solo 443 acepta tráfico externo.
 
 > Migración 2026-05: el hub vivía en VM GCP `agora-hub` (e2-micro).
 > Hoy corre en Hostinger VPS `agora-storage` junto a MinIO y Forgejo.
-> `humanizar2` (host de workers) murió físicamente el 2026-05-24.
-> Migración completada 2026-05-24 a `ils-server` (NetBird 100.98.245.50).
-> Pendiente: recrear los workers individuales con los IDs de workspace.
+> `humanizar2` murió físicamente el 2026-05-24; `ils-server` lo reemplazó
+> temporalmente y quedó apagado el 2026-08-16. El 2026-08-19 se migraron
+> 40/40 workers y host-sync a `vps-humanizar-2`.
 
-### AgoraWorker (DockerHub + ils-server)
+### AgoraWorker (DockerHub + vps-humanizar-2)
 
 ```bash
 cd AgoraWorker/worker
 docker build -t stevenvo780/edu-worker:latest .
 docker push stevenvo780/edu-worker:latest
-# en ils-server:
-ssh ils-server 'echo PASS | sudo -S edu-worker-manager update all'
+# verificar runtime actual antes del rollout:
+ssh vps-tn 'docker ps --filter name=edu-worker && docker inspect agora-host-sync --format "{{.State.Status}}/{{.State.Health.Status}}"'
 ```
 
-`edu-worker-manager update all` recrea los containers con la imagen
-nueva. Cada worker se reconecta al hub en <5s.
+Producción ya no usa `edu-worker-manager` ni una unidad systemd para host-sync.
+Ver `AgoraWorker/docs/RUNTIME-PROD-2026-08-25.md`; preservar env, mounts, labels
+y límites de cada contenedor durante cualquier rollout.
 
 ## 5. Operación de la infraestructura
 
@@ -205,13 +208,11 @@ Hosts:
   (`hub.elenxos.com`) y Postgres 17. Docker Compose en `/opt/agora-stack/`.
   `docker compose -f /opt/agora-stack/docker-compose.yml exec agora-minio ...`
   para acción directa. Primario de producción.
-- **ils-server** — `ils-server@100.98.245.50` (NetBird, alias SSH `ils-server`).
-  `srv936994.hstgr.cloud`, IP pública NAT `148.230.88.162`. Reemplaza humanizar2
-  (muerto 2026-05-24). Ubuntu 24.04.4 LTS, Docker CE 29.5.2, 4 cores / 7.8 GB RAM.
-  User `humanizar` (UID 1001) para containers (grupo docker). 43 workers activos.
-  Config en `/etc/edu-worker/worker.env`. Daemon en `/opt/agora-host-sync/`.
-  Gestión: `sudo edu-worker-manager add <wsId>` / `update all`.
-- **humanizar2** — MUERTO FÍSICAMENTE (2026-05-24). Reemplazado por ils-server.
+- **vps-humanizar-2** — alias `vps-tn` (`100.64.0.11`) / `vps`
+  (`167.114.118.213`), user `root`. Aloja 40 workers y `agora-host-sync` como
+  contenedores Docker. Persistencia en `/datos/agora-workers/{workspaces,home}`.
+- **ils-server** — RETIRADO, apagado desde 2026-08-16. No desplegar allí.
+- **humanizar2** — MUERTO FÍSICAMENTE (2026-05-24).
 - **GCP** — proyecto `udea-filosofia` (mismo que Firebase). `gcloud auth
   login` ya está; `gcloud config set project udea-filosofia` por defecto.
   Cloud Run para AgoraBack.
@@ -220,16 +221,16 @@ Hosts:
 
 Comandos diagnóstico frecuentes:
 ```bash
-# Estado del daemon de sync (ils-server)
-ssh ils-server 'sudo systemctl status agora-host-sync'
-ssh ils-server 'sudo tail -50 /home/humanizar/logs/agora-host-sync.log'
+# Estado del contenedor de sync (vps-humanizar-2)
+ssh vps-tn 'docker inspect agora-host-sync --format "{{.State.Status}}/{{.State.Health.Status}} reinicios={{.RestartCount}}"'
+ssh vps-tn 'docker logs --tail 50 agora-host-sync'
 
 # Estado del hub (Hostinger VPS)
 ssh root@76.13.118.239 'systemctl status edu-hub'
 curl -s https://hub.elenxos.com/health
 
-# Workers (ils-server)
-ssh ils-server 'sudo docker ps --filter name=edu-worker --format "table {{.Names}}\t{{.Status}}"'
+# Workers (vps-humanizar-2)
+ssh vps-tn 'docker ps --filter name=edu-worker --format "table {{.Names}}\t{{.Status}}"'
 
 # Bucket MinIO (creds en secrets.md):
 ssh root@76.13.118.239 'docker compose -f /opt/agora-stack/docker-compose.yml exec agora-minio mc ls --recursive adm/agora-blobs/ | head'
@@ -243,11 +244,10 @@ gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.serv
 
 ## 6. Workers — comportamiento conocido
 
-- ils-server corre Docker CE 29.5.2 — sin el bug HTTP/2 (`golang.org/x/net/http2`)
-  que crasheaba Docker 28.2.2 en humanizar2. Estabilidad de workers mejorada.
-- Workers viven en `/home/humanizar/edu-worker/{workspaces,home}/` en ils-server.
-- Gestión: `ssh ils-server 'sudo edu-worker-manager update all'` (recrear todos con imagen nueva).
-  Para añadir uno: `sudo edu-worker-manager add <wsId>`.
+- `vps-humanizar-2` mantiene 40 workers con `restart=unless-stopped`.
+- Workers viven en `/datos/agora-workers/{workspaces,home}/`.
+- `agora-host-sync` es un contenedor Docker con límite de 8 GiB, no una unidad
+  systemd. Los scripts legacy de `edu-worker-manager` están bloqueados.
 - El handler `agent-command` del worker (en `AgoraWorker/worker/index.js`)
   valida con whitelist (~40 binarios seguros). Si el agente IA pide un
   comando fuera de la whitelist, responde `binary "x" no está en la whitelist`.
@@ -255,7 +255,8 @@ gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.serv
   `--network=host`, `--user=estudiante`, mounts en
   `/home/humanizar/edu-worker/...`, env igual a otro worker pero con
   `WORKER_TOKEN=<wsId>`.
-- Existe `edu-worker-manager add <wsId>` que requiere sudo.
+- Para recrear o añadir un worker, preservar env, mounts, labels, límites y
+  política de restart de un contenedor existente; no borrar la persistencia.
 
 ## 7. Cómo me suele pedir el user las cosas
 
@@ -358,9 +359,9 @@ Si reaparecen, comunicar al user:
   (`/api/upload/multipart/{initiate,sign-part,complete,abort}`).
 - ~~Git providers solo Forgejo interno~~ → vault AES-256-GCM +
   isomorphic-git para vincular repos externos (GitHub, GitLab, SSH).
-- ~~Migración workers a nuevo hardware~~ → completada 2026-05-24. ils-server
-  (`srv936994.hstgr.cloud`, NetBird `100.98.245.50`) corre Docker CE 29.5.2 con
-  43 workers activos + daemon `agora-host-sync`. humanizar2 retirado definitivamente.
+- ~~Migración workers a nuevo hardware~~ → completada 2026-08-19 en
+  `vps-humanizar-2`: 40 workers activos + contenedor `agora-host-sync`.
+  `ils-server` y `humanizar2` quedaron retirados.
 - ~~next-pwa@5.6.0 EOL~~ → migrado a `@ducanh2912/next-pwa@10.2.9`
   (fork mantenido) + SW auto-registra en App Router.
 - ~~ST V4 evolution~~ → 52+ módulos en `@stevenvo780/st-lang@4.5.0` (de 3.2.3). 1583 → 4041 tests. Releases v4.0.0 → v4.5.0.
