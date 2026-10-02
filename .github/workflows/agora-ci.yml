@@ -10,10 +10,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
+      - name: Bootstrap pinned service repositories
+        run: node scripts/bootstrap-ci.mjs
       - run: npm ci
       - run: npm --prefix packages/agora-contracts run build
       - run: npm --prefix packages/agora-contracts run typecheck
