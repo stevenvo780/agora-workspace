@@ -1,0 +1,60 @@
+{
+  "repositories": [
+    {
+      "repository": "stevenvo780/agora-contracts",
+      "ref": "9ae9876104ef5acc8dab4f6cbae633516a463f50",
+      "path": "packages/agora-contracts",
+      "packagePath": "packages/agora-contracts",
+      "install": "ci"
+    },
+    {
+      "repository": "stevenvo780/EducacionCooperativa",
+      "ref": "44086d7ab63cf30c789e1baecb9943c636a51037",
+      "path": "AgoraFront",
+      "packagePath": "AgoraFront",
+      "install": "ci"
+    },
+    {
+      "repository": "stevenvo780/agora-backend",
+      "ref": "09abf1b9495697c82cf337ce48e60bbcdebd752a",
+      "path": "AgoraBack",
+      "packagePath": "AgoraBack",
+      "install": "ci"
+    },
+    {
+      "repository": "stevenvo780/agora-hub",
+      "ref": "1cd9f955efcc6505e0d27160d279033de84a099d",
+      "path": "AgoraHub",
+      "packagePath": "AgoraHub",
+      "install": "ci"
+    },
+    {
+      "repository": "stevenvo780/agora-worker",
+      "ref": "66188345e50a4f4ded3405fbacb0ea63e4592b78",
+      "path": "AgoraWorker",
+      "packagePath": "AgoraWorker/worker",
+      "install": "ci"
+    },
+    {
+      "repository": "stevenvo780/agora-cli",
+      "ref": "38e2e0fa94d78e8d43741322869413ae371e10b4",
+      "path": "AgoraCli",
+      "packagePath": "AgoraCli",
+      "install": "none"
+    },
+    {
+      "repository": "stevenvo780/ST",
+      "ref": "e34d51adabeb86fa803677c462b642d509f65898",
+      "path": "ST",
+      "packagePath": "ST",
+      "install": "ci"
+    },
+    {
+      "repository": "stevenvo780/auto.logic",
+      "ref": "8866a786ed449b79d03d70d4fe7e215976db4594",
+      "path": "Autologic",
+      "packagePath": "Autologic",
+      "install": "ci"
+    }
+  ]
+}
