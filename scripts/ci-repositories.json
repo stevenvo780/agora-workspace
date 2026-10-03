@@ -30,7 +30,7 @@
     },
     {
       "repository": "stevenvo780/agora-worker",
-      "ref": "b33a623f79289f3b9e250017b7a829a620f33adb",
+      "ref": "66188345e50a4f4ded3405fbacb0ea63e4592b78",
       "path": "AgoraWorker",
       "packagePath": "AgoraWorker/worker",
       "install": "ci"
